@@ -20,7 +20,11 @@ Two cameras are exposed as separate Alpaca devices:
 | 0 | ZWO ASI220MM Air | 1920x1080 mono (guide) | 4.0 µm | 10 s |
 | 1 | ZWO ASI585MC Air | 3840x2160 Bayer RGGB | 2.9 µm | 2000 s |
 
-Gain range 0–600 on both. No cooling (`cooleron` false, and there's no cooler).
+Gain range 0–600 on both. The ASI585MC (device 1) has a **regulated TEC cooler**
+(`cansetccdtemperature` and `cangetcoolerpower` both true) — set a target with
+`setccdtemperature` and turn it on with `cooleron`. It just reads `cooleron`
+false when the cooler is off (e.g. 28.4 °C uncooled at probe time). The ASI220MM
+guide camera (device 0) is uncooled.
 
 ## Two ways in
 
