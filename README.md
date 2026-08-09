@@ -76,7 +76,14 @@ The catch is the key: signing needs an RSA private key that ZWO ships inside the
 ASIAIR app, not on the device. `seestar_alp` implements the same handshake but
 ships no key — each user supplies one extracted from the app they own, which ZWO's
 own config frames under the DMCA interoperability exemption (17 U.S.C. § 1201(f)).
-Put your key in `embedded_key.pem` (git-ignored) and:
+It lives as a PEM blob in the app's bundled `libopenssllib.so`; `extract_key.py`
+pulls it out of an APK/XAPK for you:
+
+```bash
+python3 extract_key.py ASIAIR_x.y.z.xapk        # -> embedded_key.pem (git-ignored)
+```
+
+Then use it (the key stays local — `embedded_key.pem` is git-ignored):
 
 ```bash
 python3 handshake.py --host <air-ip> --key embedded_key.pem      # prove the handshake
@@ -126,6 +133,7 @@ python3 solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon t
 | `mount.py` | Mount control on 4400: `info`, `coord`, `track`, `goto`, `sync`, `park`. |
 | `guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `start`, `stop`. |
 | `solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
+| `extract_key.py` | Pull the RSA interop key out of an ASIAIR APK/XAPK into `embedded_key.pem`. |
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
 | `smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
