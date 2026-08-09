@@ -152,3 +152,11 @@ python3 solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon t
   `solve_center.py` refuses targets below the horizon — check before you slew.
 - The RSA key is yours and stays local: `embedded_key.pem` is git-ignored, never
   commit it.
+
+## License
+
+Released under the [MIT License](LICENSE) © 2026 Mads Dørup.
+
+The RSA-key handling is for interoperability with your own device, using an app
+you are licensed to use, under the DMCA exemption at 17 U.S.C. § 1201(f). No key
+material is included in this repository.
