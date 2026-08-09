@@ -19,7 +19,7 @@ wrong; it's a port split.) `mount.py` uses 4400; `air_rpc.py --key` is 4700 only
 | Port | Auth | Serves |
 |---|---|---|
 | 4700 | RSA handshake (`--key`) | camera, focuser, wheel, solve, plan, stack, polar, settings, telemetry |
-| 4400 | none | **mount (`scope_*`) + guiding (`guide_*`)** |
+| 4400 | none | **mount (`scope_*`) + guiding (unprefixed guide methods)** |
 
 Live-validated on 4400 (firmware 43.97 / AM5N fw 1.8.6, 2026-08-09):
 `get_connected_mount_info`→`{"model":"ZWO AM5N",...}`, `get_mount_list`→driver
@@ -71,7 +71,8 @@ hours, Dec/Alt/Az in degrees.**
 | `scope_move_left_by_angle` | `[obj]` | Slew by angle |
 | `scope_park` | — | Park |
 | `scope_abort_slew` | — | Stop a slew / unpark move |
-| `scope_set_track_mode` / `scope_set_slew_rate` / `scope_set_guide_rate` | index | Rates/modes |
+| `scope_set_track_mode` / `scope_set_slew_rate` | `[index]` | Track mode / slew rate (list index) |
+| `scope_set_guide_rate` | `[rate]` | Pulse-guide rate, a **float** ×sidereal (e.g. `0.5`) |
 
 ## Solve-and-center (these ARE on 4700, main channel)
 
@@ -82,11 +83,59 @@ plate-solve-and-center, orchestrated from 4700 using the mount underneath.
 
 `start_solve` · `stop_solve` · `get_solve_result` · `get_last_solve_result` · `set_solved`
 
-## Guiding
+## Guiding (4400 — unprefixed guide methods)
 
-`start_guide` · `stop_guide` · `set_guide` · `get_dither` · `set_dither` ·
-`get_dec_guide_mode` · `set_dec_guide_mode` · `get_calibrated` ·
-`get_auto_load_calibration` · `set_auto_load_calibration` · `get_flip_calibration`
+Guiding shares the 4400 channel with the mount but the guide methods are
+**unprefixed** (they'd collide with 4700 names, but it's a separate service).
+Names + params from the app's `GuideCameraGateway`, live-validated 2026‑08‑09.
+
+**Important:** the guide camera only opens once the app's PHD2-style guide engine
+is running (it starts when the app enters the Guide screen). A second client can
+read the *stored* guide config, but `loop` returns `303 could not start looping`
+and `get_camera_info` returns `318` until that engine is up — so live
+exposure/gain read as 0/unset from an idle client.
+
+### Camera / session
+| Method | Params | Purpose |
+|---|---|---|
+| `get_connected_cameras` | — ✓ | List guide cameras `[{name,id,path}]` |
+| `set_camera_idx` | `[index]` ✓ | Select the guide camera (id from the list above) |
+| `set_connected` | `[{camera-obj}]` | Connect the guide camera (list-wrapped object) |
+| `get_connected` | — ✓ | `{mount, mount_name, mount_specify_name}` |
+| `get_camera_info` / `get_camera_binning` | — | Live only while the engine runs (else `318`) |
+| `get_exposure` / `set_exposure` | — / `[ms]` | Guide exposure, ms |
+| `get_gain` / `set_gain` / `get_gain_segment` | — / `[gain]` / — | Guide-camera gain |
+| `loop` / `stop_capture` | — ✓ | Start / stop looping (`loop` → `303` if engine down) |
+| `guide` | **bare** `{settle-obj}` | Start calibration + guiding |
+| `get_app_state` | — ✓ | `Idle`/`Looping`/`Selected`/`Calibrating`/`Guiding`/`Paused`/`LostLock`/`Stopped` |
+
+### Algorithm / tuning (the "am I on defaults?" params)
+| Method | Params ✓ | Values |
+|---|---|---|
+| `get_algo_param` | `[axis, key]` | axis `"ra"`/`"dec"`, key `"aggression"`/`"period"`. A single arg → `105` |
+| `set_algo_param` | `[axis, key, value]` | e.g. `["dec","aggression",0.7]` (aggression 0–1) |
+| `get_dec_guide_mode` / `set_dec_guide_mode` | — / `[mode]` | `"Auto"`/`"North"`/`"South"`/`"Off"` |
+| `get_search_region` / `set_search_region` | — / `[px]` | Star search box, px |
+| `get_lock_position` / `set_lock_position` | — / `[x, y, lock]` | Guide lock position |
+| `get_setting` / `set_setting` | — / `[obj]` | Guide settings blob (empty `{}` until the engine runs) |
+| `get_beta_setting` / `set_beta_setting` | — / **bare** `{obj}` | Holds `disable_meridian_limit`; setter takes a **bare** object (list-wrapped → `107`) |
+
+### Calibration / darks
+| Method | Params | Purpose |
+|---|---|---|
+| `get_calibrated` / `clear_calibration` | — | Calibration state / clear |
+| `get_auto_load_calibration` / `set_auto_load_calibration` | — / `[bool]` | Auto-load stored calibration |
+| `get_flip_state` / `flip_calibrate` | — | Meridian-flip calibration |
+| `start_create_dark` / `stop_create_dark` / `get_dark_info` | — | Guide dark library |
+| `get_ra_dec_history` | — | Guide graph history (`321` when empty) |
+
+**Param-shape gotchas on 4400** (they are not uniform): `scope_*` mount methods
+and `set_algo_param` take a **list** (`["dec","aggression",0.7]`); the guide
+config setters `set_beta_setting`/`guide` take a **bare object** (list-wrapping
+them returns `107`), while `set_connected` takes a **list-wrapped** object.
+The mount's pulse-guide rate is `scope_set_guide_rate` — a `scope_*` mount
+method taking a **float** (e.g. `0.5`), not one of these guide methods.
+`get_dither`/`set_dither` live on **4700**, not here.
 
 ## Polar alignment
 
