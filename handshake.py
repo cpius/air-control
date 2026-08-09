@@ -8,7 +8,7 @@ Flow (firmware 7.18+, per seestar_alp):
     pi_is_verified             -> confirms the channel is unlocked
 
 Usage:
-    python3 handshake.py --host 192.168.2.149 --key embedded_key.pem
+    python3 handshake.py --host <air-ip> --key embedded_key.pem
 """
 
 import argparse

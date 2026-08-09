@@ -11,10 +11,10 @@ the default here. Pass --port to override.
     PUT  http://host:32323/api/v1/camera/0/startexposure   Duration=5&Light=True
 
 Usage:
-    python3 alpaca.py --host 192.168.2.149 info
-    python3 alpaca.py --host 192.168.2.149 get camera 0 ccdtemperature
-    python3 alpaca.py --host 192.168.2.149 put camera 0 gain Gain=252
-    python3 alpaca.py --host 192.168.2.149 expose 5 --gain 252 --out test.fits
+    python3 alpaca.py --host <air-ip> info
+    python3 alpaca.py --host <air-ip> get camera 0 ccdtemperature
+    python3 alpaca.py --host <air-ip> put camera 0 gain Gain=252
+    python3 alpaca.py --host <air-ip> expose 5 --gain 252 --out test.fits
 """
 
 import argparse

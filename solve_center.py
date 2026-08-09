@@ -18,6 +18,7 @@ mount's live latitude + sidereal time (read from 4400).
 
 import argparse
 import math
+import os
 import sys
 import time
 
@@ -40,7 +41,9 @@ def main():
     ap.add_argument("ra", type=float, help="target RA in hours")
     ap.add_argument("dec", type=float, help="target Dec in degrees")
     ap.add_argument("--angle", type=float, default=None, help="rotator angle (optional)")
-    ap.add_argument("--host", default="192.168.2.149")
+    ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
+                    required="ASIAIR_HOST" not in os.environ,
+                    help="Air IP address (or set the ASIAIR_HOST env var)")
     ap.add_argument("--min-alt", type=float, default=10.0, help="refuse below this altitude")
     ap.add_argument("--seconds", type=int, default=180, help="max time to watch events")
     ap.add_argument("--force", action="store_true", help="skip the horizon check")

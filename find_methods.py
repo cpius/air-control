@@ -9,7 +9,7 @@ read-only wordlist, keep everything that isn't a 103.
 Read-only verbs only (get_/is_/has_/scan_ and <device>_get_). Nothing here
 moves the mount, exposes, or writes settings.
 
-    python3 find_methods.py --host 192.168.2.149 --key embedded_key.pem
+    python3 find_methods.py --host <air-ip> --key embedded_key.pem
 """
 
 import argparse

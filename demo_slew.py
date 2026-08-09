@@ -4,14 +4,21 @@
 Reads the start position, slews 5 deg in Dec (same RA), confirms motion, then
 returns to the exact start and restores the original tracking state. Aborts the
 slew on any error. Refuses if the computed move would exceed 10 deg.
+
+    ASIAIR_HOST=<air-ip> python3 demo_slew.py      # or: python3 demo_slew.py <air-ip>
 """
+import os
+import sys
 import time
 from mount import Mount
 
 STEP_DEG = 5.0
 SETTLE_TIMEOUT = 60
 
-m = Mount("192.168.2.149")
+HOST = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("ASIAIR_HOST")
+if not HOST:
+    sys.exit("usage: python3 demo_slew.py <host>   (or set ASIAIR_HOST)")
+m = Mount(HOST)
 
 
 def snap():

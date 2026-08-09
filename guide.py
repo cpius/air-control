@@ -21,6 +21,7 @@ Paused / LostLock / Stopped.
 
 import argparse
 import json
+import os
 import sys
 
 from air_rpc import Air
@@ -74,7 +75,9 @@ class Guide:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="192.168.2.149")
+    ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
+                    required="ASIAIR_HOST" not in os.environ,
+                    help="Air IP address (or set the ASIAIR_HOST env var)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("state"); sub.add_parser("cameras")
     sub.add_parser("loop"); sub.add_parser("stop"); sub.add_parser("start")

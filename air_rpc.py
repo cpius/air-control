@@ -18,11 +18,11 @@ the gated methods answer. Signing needs the `cryptography` package (imported
 lazily, so the unauthenticated paths stay stdlib-only).
 
 Usage:
-    python3 air_rpc.py --host 192.168.2.149 probe                 # API surface
-    python3 air_rpc.py --host 192.168.2.149 --key embedded_key.pem probe
-    python3 air_rpc.py --host 192.168.2.149 --key embedded_key.pem call get_device_state
-    python3 air_rpc.py --host 192.168.2.149 --key embedded_key.pem console
-    python3 air_rpc.py --host 192.168.2.149 listen                # watch events
+    python3 air_rpc.py --host <air-ip> probe                 # API surface
+    python3 air_rpc.py --host <air-ip> --key embedded_key.pem probe
+    python3 air_rpc.py --host <air-ip> --key embedded_key.pem call get_device_state
+    python3 air_rpc.py --host <air-ip> --key embedded_key.pem console
+    python3 air_rpc.py --host <air-ip> listen                # watch events
 """
 
 import argparse

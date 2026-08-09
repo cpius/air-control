@@ -19,6 +19,7 @@ Method names + param shapes lifted from the ASIAIR app's MountGateway
 
 import argparse
 import json
+import os
 import sys
 
 from air_rpc import Air
@@ -60,7 +61,9 @@ class Mount:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="192.168.2.149")
+    ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
+                    required="ASIAIR_HOST" not in os.environ,
+                    help="Air IP address (or set the ASIAIR_HOST env var)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("info"); sub.add_parser("coord"); sub.add_parser("caps")
     sub.add_parser("list"); sub.add_parser("park"); sub.add_parser("abort")
