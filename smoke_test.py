@@ -5,12 +5,15 @@ Uses a small subframe so imagearray comes back as JSON in a sane amount of
 time — the full 3840x2160 frame is 8.3M values and is painful over JSON.
 """
 
+import os
 import sys
 import time
 
 from alpaca import Alpaca
 
-HOST = sys.argv[1] if len(sys.argv) > 1 else "192.168.2.149"
+HOST = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("ASIAIR_HOST")
+if not HOST:
+    sys.exit("usage: python3 smoke_test.py <host> [port]   (or set ASIAIR_HOST)")
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 32323
 CAM = 1  # 0 = ASI220MM guide sensor, 1 = ASI585MC main sensor
 

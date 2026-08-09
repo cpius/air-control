@@ -32,7 +32,13 @@ python3 discover.py --host <air-ip>    # fingerprint a known address
 ```
 
 Note the Air's IP, and its Alpaca port if you'll use Alpaca. Substitute your IP
-for `<air-ip>` throughout.
+for `<air-ip>` throughout — or set it once and drop `--host` from every command:
+
+```bash
+export ASIAIR_HOST=<air-ip>            # mount.py, guide.py, solve_center.py, smoke_test.py read this
+```
+
+(`alpaca.py` and `air_rpc.py` still take `--host` explicitly, since they also need a port/key.)
 
 ## 2. Camera — ASCOM Alpaca (works now, no key)
 
