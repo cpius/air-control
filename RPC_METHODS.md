@@ -89,23 +89,35 @@ Guiding shares the 4400 channel with the mount but the guide methods are
 **unprefixed** (they'd collide with 4700 names, but it's a separate service).
 Names + params from the app's `GuideCameraGateway`, live-validated 2026‑08‑09.
 
-**Important:** the guide camera only opens once the app's PHD2-style guide engine
-is running (it starts when the app enters the Guide screen). A second client can
-read the *stored* guide config, but `loop` returns `303 could not start looping`
-and `get_camera_info` returns `318` until that engine is up — so live
-exposure/gain read as 0/unset from an idle client.
+**Entering the guide tab / opening the sensor.** There is no `set_page("guide")`
+— the guide tab (`GuiderFragment`) talks to 4400 directly. To bring the guide
+camera online so `get_camera_info` / `get_exposure` / `get_gain` return real
+values instead of `318`:
+
+```
+set_camera_idx([<id>])             # id from get_connected_cameras (e.g. 0)
+set_connected([{"camera": true}])  # connect the sensor (Camera bean {camera:bool})
+loop()                             # optional — start streaming; frames go to TCP 4500
+```
+
+`set_connected([{"camera": false}])` disconnects it. **Reading the settings needs
+only the connect** — `loop` (live frames) additionally needs a consumer on the
+guide image stream, **TCP 4500** (`GuideImageSocket`), and returns
+`303 could not start looping` if the sensor isn't connected first. (An earlier
+revision of this doc claimed the sensor only opens with the app's engine running
+— that was wrong; the `set_connected` object shape was.)
 
 ### Camera / session
 | Method | Params | Purpose |
 |---|---|---|
 | `get_connected_cameras` | — ✓ | List guide cameras `[{name,id,path}]` |
 | `set_camera_idx` | `[index]` ✓ | Select the guide camera (id from the list above) |
-| `set_connected` | `[{camera-obj}]` | Connect the guide camera (list-wrapped object) |
-| `get_connected` | — ✓ | `{mount, mount_name, mount_specify_name}` |
-| `get_camera_info` / `get_camera_binning` | — | Live only while the engine runs (else `318`) |
-| `get_exposure` / `set_exposure` | — / `[ms]` | Guide exposure, ms |
-| `get_gain` / `set_gain` / `get_gain_segment` | — / `[gain]` / — | Guide-camera gain |
-| `loop` / `stop_capture` | — ✓ | Start / stop looping (`loop` → `303` if engine down) |
+| `set_connected` | `[{"camera": bool}]` ✓ | Connect/disconnect the guide sensor (`Camera` bean); the mount side is `[{... mount ...}]` |
+| `get_connected` | — ✓ | `{camera:{name,path}, mount, mount_name, …}` (the `camera` field appears once connected) |
+| `get_camera_info` / `get_camera_binning` | — ✓ | `{full_size:[w,h]}` / `{bin,max_bin}` once connected (else `318`) |
+| `get_exposure` / `set_exposure` | — / `[ms]` | Guide exposure, ms (reads real once connected) |
+| `get_gain` / `set_gain` / `get_gain_segment` | — / `[gain]` / — | Guide-camera gain (`{min,max,val}`) |
+| `loop` / `stop_capture` | — ✓ | Start / stop streaming (frames on TCP **4500**); `loop` → `303` if the sensor isn't connected |
 | `guide` | **bare** `{settle-obj}` | Start calibration + guiding |
 | `get_app_state` | — ✓ | `Idle`/`Looping`/`Selected`/`Calibrating`/`Guiding`/`Paused`/`LostLock`/`Stopped` |
 
@@ -117,7 +129,7 @@ exposure/gain read as 0/unset from an idle client.
 | `get_dec_guide_mode` / `set_dec_guide_mode` | — / `[mode]` | `"Auto"`/`"North"`/`"South"`/`"Off"` |
 | `get_search_region` / `set_search_region` | — / `[px]` | Star search box, px |
 | `get_lock_position` / `set_lock_position` | — / `[x, y, lock]` | Guide lock position |
-| `get_setting` / `set_setting` | — / `[obj]` | Guide settings blob (empty `{}` until the engine runs) |
+| `get_setting` / `set_setting` | — / `[obj]` | Guide settings blob (observed empty `{}` even when connected; likely populates only during guiding) |
 | `get_beta_setting` / `set_beta_setting` | — / **bare** `{obj}` | Holds `disable_meridian_limit`; setter takes a **bare** object (list-wrapped → `107`) |
 
 ### Calibration / darks
@@ -132,7 +144,8 @@ exposure/gain read as 0/unset from an idle client.
 **Param-shape gotchas on 4400** (they are not uniform): `scope_*` mount methods
 and `set_algo_param` take a **list** (`["dec","aggression",0.7]`); the guide
 config setters `set_beta_setting`/`guide` take a **bare object** (list-wrapping
-them returns `107`), while `set_connected` takes a **list-wrapped** object.
+them returns `107`), while `set_connected` takes a **list-wrapped** `Camera`/`Mount`
+bean (`[{"camera": true}]`).
 The mount's pulse-guide rate is `scope_set_guide_rate` — a `scope_*` mount
 method taking a **float** (e.g. `0.5`), not one of these guide methods.
 `get_dither`/`set_dither` live on **4700**, not here.
