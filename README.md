@@ -77,7 +77,12 @@ ASIAIR app, not on the device. `seestar_alp` implements the same handshake but
 ships no key — each user supplies one extracted from the app they own, which ZWO's
 own config frames under the DMCA interoperability exemption (17 U.S.C. § 1201(f)).
 It lives as a PEM blob in the app's bundled `libopenssllib.so`; `extract_key.py`
-pulls it out of an APK/XAPK for you:
+pulls it out of an APK/XAPK for you.
+
+Grab the ASIAIR app package first. If you don't have the app installed on an
+Android device to pull the APK from, a mirror such as
+[apkpure.com](https://apkpure.com/asiair/com.zwoasi.asiair) serves it as an
+`.xapk` bundle — download that and point the script at it:
 
 ```bash
 python3 extract_key.py ASIAIR_x.y.z.xapk        # -> embedded_key.pem (git-ignored)
