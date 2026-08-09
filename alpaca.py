@@ -20,6 +20,7 @@ Usage:
 import argparse
 import itertools
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -123,7 +124,9 @@ class Alpaca:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", required=True)
+    ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
+                    required="ASIAIR_HOST" not in os.environ,
+                    help="Air IP address (or set the ASIAIR_HOST env var)")
     ap.add_argument("--port", type=int, default=32323)
     sub = ap.add_subparsers(dest="cmd", required=True)
 

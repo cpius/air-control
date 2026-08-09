@@ -28,6 +28,7 @@ Usage:
 import argparse
 import base64
 import json
+import os
 import queue
 import socket
 import sys
@@ -278,7 +279,9 @@ def cmd_console(air):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", required=True)
+    ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
+                    required="ASIAIR_HOST" not in os.environ,
+                    help="Air IP address (or set the ASIAIR_HOST env var)")
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--key", help="RSA key PEM; runs the auth handshake to "
                                   "unlock gated methods (mount, solve, autorun)")
