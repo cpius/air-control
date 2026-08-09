@@ -1,0 +1,14 @@
+# The RSA private key for the 4700 handshake — user-supplied, never commit.
+embedded_key.pem
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Captured frames / scratch output
+*.fits
+test.json
