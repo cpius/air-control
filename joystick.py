@@ -18,13 +18,33 @@ HOST = os.environ.get("ASIAIR_HOST")
 
 class Joystick:
     def __init__(self, host=HOST):
+        self.host = host
         self.air = Air(host, 4400, timeout=10)
 
-    def _r(self, m, p=None, t=12):
-        r = self.air.call(m, p or [], timeout=t)
-        if isinstance(r, dict) and r.get("error"):
-            raise RuntimeError(f"{m}: {r['error']} (code {r.get('code')})")
-        return r.get("result")
+    def _r(self, m, p=None, t=12, tries=3):
+        """Call on 4400, reconnecting if the Air drops the socket.
+
+        A long-lived 4400 connection will eventually give BrokenPipe or a read
+        timeout. An RPC-level error is a real answer, not a transport failure,
+        so it is re-raised immediately rather than retried.
+        """
+        for i in range(tries):
+            try:
+                r = self.air.call(m, p or [], timeout=t)
+                if isinstance(r, dict) and r.get("error"):
+                    raise RuntimeError(f"{m}: {r['error']} (code {r.get('code')})")
+                return r.get("result")
+            except RuntimeError:
+                raise
+            except Exception:
+                if i == tries - 1:
+                    raise
+                try:
+                    self.air.close()
+                except Exception:
+                    pass
+                time.sleep(1.0)
+                self.air = Air(self.host, 4400, timeout=10)
 
     def state(self):
         return self._r("scope_get_info")
