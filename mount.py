@@ -52,7 +52,16 @@ class Mount:
     def goto(self, ra_h, dec_d):    return self._r("scope_goto", [float(ra_h), float(dec_d)])
     def sync(self, ra_h, dec_d):    return self._r("scope_sync", [float(ra_h), float(dec_d)])
     def move(self, direction):      return self._r("scope_move", [str(direction)])
-    def park(self):                 return self._r("scope_park")
+    def park(self):
+        """Send the mount to its HOME / zero position (Dec 90).
+
+        On the AM5N park == home: this is exactly what the app's "Go Home"
+        button sends (verified by packet capture 2026-08-10 --
+        {"id":N,"method":"scope_park"} with no params). The Air then emits
+        ScopeHome progress events until state="complete". Use this to rebuild
+        the pointing reference after the mount has been physically moved.
+        """
+        return self._r("scope_park")
     def abort(self):                return self._r("scope_abort_slew")
 
     def close(self):
