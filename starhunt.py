@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from air_rpc import Air
 from joystick import Joystick
+from mount import Mount
 from main_image import MainImage
 
 MAIN_PORT = 4700
@@ -273,7 +274,25 @@ def main():
     ap.add_argument("--gain", type=int, default=200)
     ap.add_argument("--trigger", type=float, default=12.0, help="sigma to flag a candidate")
     ap.add_argument("--calib-secs", type=float, default=2.0)
+    ap.add_argument("--lat", type=float,
+                    help="site latitude, restored after attaching the mount")
+    ap.add_argument("--lon", type=float, help="site longitude")
     a = ap.parse_args()
+
+    # The Air drops the mount on restart and nothing else re-attaches it.
+    # Attach it first, restoring the site — attaching zeroes it to [0, 0],
+    # which would silently corrupt every alt/az this search reports.
+    site = (a.lat, a.lon) if a.lat is not None and a.lon is not None else None
+    mnt = Mount(a.host)
+    try:
+        if mnt.ensure_connected(restore=site):
+            print("attached the mount")
+        ok, lat, lon = mnt.check_location()
+        if not ok:
+            print(f"  WARNING: site location is [{lat}, {lon}] — alt/az will be "
+                  "wrong. Pass --lat/--lon, or set it with mount.py location")
+    finally:
+        mnt.close()
 
     j = Joystick(a.host)
     cam = None
