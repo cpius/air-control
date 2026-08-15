@@ -17,9 +17,19 @@ HOST = os.environ.get("ASIAIR_HOST")
 
 
 class Joystick:
-    def __init__(self, host=HOST):
+    def __init__(self, host=HOST, require_mount=True):
         self.host = host
         self.air = Air(host, 4400, timeout=10)
+        if require_mount and not self.mount_attached():
+            raise RuntimeError(
+                "the Air has no mount attached, so scope_move would do nothing.\n"
+                "  fix:  python3 mount.py connect --lat <lat> --lon <lon>\n"
+                "(an Air restart drops the mount, and attaching zeroes the site)")
+
+    def mount_attached(self):
+        r = self.air.call("get_connected", [], timeout=10)
+        res = r.get("result") if isinstance(r, dict) else None
+        return isinstance(res, dict) and "mount" in res
 
     def _r(self, m, p=None, t=12, tries=3):
         """Call on 4400, reconnecting if the Air drops the socket.

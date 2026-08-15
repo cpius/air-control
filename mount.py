@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 from air_rpc import Air
 
@@ -36,6 +37,108 @@ class Mount:
         if isinstance(reply, dict) and reply.get("error"):
             raise RuntimeError(f"{method}: {reply['error']} (code {reply.get('code')})")
         return reply.get("result") if isinstance(reply, dict) else reply
+
+    # --- attach / detach ---
+    def connected(self):
+        """True if the Air currently has the mount attached."""
+        r = self.air.call("get_connected", [], timeout=10)
+        res = r.get("result") if isinstance(r, dict) else None
+        return isinstance(res, dict) and "mount" in res
+
+    def connect(self, restore=None):
+        """Attach the mount.
+
+        Same call as the guide camera, different field — there is no
+        `set_mount` / `open_mount` (both are method-not-found). Nothing else
+        attaches it: `select_mount_list_index` picks the *driver* and refuses
+        with "cannot select if equipment are connected" while one is attached.
+
+        An Air restart drops the mount, so this is what you need after one.
+
+        CAUTION: attaching WIPES the site location to [0, 0] and nothing warns
+        you — every alt/az, horizon check and polar-align result is then quietly
+        wrong (the tell: at Dec 90 the reported Alt is 0, not your latitude).
+        Pass `restore=(lat, lon)` to put it straight back.
+        """
+        r = self._r("set_connected", [{"mount": True}])
+        t0 = time.time()
+        while time.time() - t0 < 15 and not self.connected():
+            time.sleep(0.5)
+        if restore:
+            self._hold_location(restore)
+        return r
+
+    def _hold_location(self, site, hold_s=6.0, deadline_s=30.0):
+        """Write the site and keep writing until it STAYS written.
+
+        The attach settles asynchronously and zeroes the location seconds after
+        set_connected has already returned — well after a naive write-and-verify
+        has confirmed success. So require the value to survive `hold_s` of
+        re-checking before believing it.
+        """
+        end = time.time() + deadline_s
+        good_since = None
+        while time.time() < end:
+            time.sleep(1.5)
+            try:
+                ok, lat, lon = self.check_location()
+            except RuntimeError:
+                good_since = None          # mount not ready yet
+                continue
+            if ok and abs(lat - site[0]) < 1e-3 and abs(lon - site[1]) < 1e-3:
+                good_since = good_since or time.time()
+                if time.time() - good_since >= hold_s:
+                    return True
+            else:
+                good_since = None
+                try:
+                    self.set_location(*site)
+                except RuntimeError:
+                    pass
+        return False
+
+    def disconnect(self):
+        return self._r("set_connected", [{"mount": False}])
+
+    def reconnect(self):
+        """Detach and re-attach, preserving the site location across the cycle."""
+        saved = None
+        try:
+            ok, lat, lon = self.check_location()
+            if ok:
+                saved = (lat, lon)
+        except Exception:
+            pass
+        self.disconnect()
+        time.sleep(2)
+        return self.connect(restore=saved)
+
+    def ensure_connected(self, verbose=True, restore=None):
+        """Attach the mount if it is not already. Returns True if it had to."""
+        if self.connected():
+            return False
+        if verbose:
+            print("mount not attached — connecting ...")
+        self.connect(restore=restore)
+        if not self.connected():
+            raise RuntimeError("could not attach the mount — is it powered and "
+                               "cabled to the Air? (mount_scan_port lists ports)")
+        return True
+
+    # --- site location ---
+    def location(self):
+        """[lat, lon] in degrees."""
+        return self._r("scope_get_location")
+
+    def set_location(self, lat, lon):
+        return self._r("scope_set_location", [float(lat), float(lon)])
+
+    def check_location(self):
+        """An Air restart, or attaching the mount, can silently zero the site.
+        Sanity test: at Dec 90 the altitude must equal the latitude.
+        Returns (ok, lat, lon)."""
+        lat, lon = self.location()
+        return (abs(lat) > 0.01 or abs(lon) > 0.01), lat, lon
 
     # --- reads (safe) ---
     def info(self):        return self._r("get_connected_mount_info")
@@ -76,6 +179,12 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("info"); sub.add_parser("coord"); sub.add_parser("caps")
     sub.add_parser("list"); sub.add_parser("park"); sub.add_parser("abort")
+    cn = sub.add_parser("connect")
+    cn.add_argument("--lat", type=float, help="restore the site after connecting")
+    cn.add_argument("--lon", type=float)
+    sub.add_parser("disconnect"); sub.add_parser("reconnect")
+    loc = sub.add_parser("location")
+    loc.add_argument("lat", type=float, nargs="?"); loc.add_argument("lon", type=float, nargs="?")
     t = sub.add_parser("track"); t.add_argument("state", choices=["on", "off"])
     g = sub.add_parser("goto"); g.add_argument("ra", type=float); g.add_argument("dec", type=float)
     y = sub.add_parser("sync"); y.add_argument("ra", type=float); y.add_argument("dec", type=float)
@@ -105,6 +214,26 @@ def main():
             print("move ->", mnt.move(a.direction))
         elif a.cmd == "park":
             print("park ->", mnt.park())
+        elif a.cmd == "connect":
+            restore = (a.lat, a.lon) if a.lat is not None and a.lon is not None else None
+            was = mnt.ensure_connected(restore=restore)
+            print("connected" if was else "already connected", "->",
+                  json.dumps(mnt.info(), ensure_ascii=False))
+            ok, lat, lon = mnt.check_location()
+            print(f"site: lat={lat} lon={lon}" + ("" if ok else
+                  "   <-- WARNING: site is zeroed; set it with 'location <lat> <lon>'"))
+        elif a.cmd == "disconnect":
+            print("disconnect ->", mnt.disconnect())
+        elif a.cmd == "reconnect":
+            print("reconnect ->", mnt.reconnect())
+            ok, lat, lon = mnt.check_location()
+            print(f"site preserved: lat={lat} lon={lon} ok={ok}")
+        elif a.cmd == "location":
+            if a.lat is None:
+                ok, lat, lon = mnt.check_location()
+                print(f"lat={lat} lon={lon}" + ("" if ok else "   <-- zeroed"))
+            else:
+                print("set_location ->", mnt.set_location(a.lat, a.lon))
         elif a.cmd == "abort":
             print("abort ->", mnt.abort())
     finally:
