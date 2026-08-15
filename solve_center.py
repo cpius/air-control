@@ -68,8 +68,17 @@ def main():
     if not air.verified:
         print("4700 auth failed", file=sys.stderr); return 1
 
-    # Main camera must be open for the Air to expose+solve.
-    air.call("open_camera", [], timeout=10)
+    # Main camera must be open for the Air to expose+solve. A BARE open_camera
+    # opens the GUIDE sensor, which would solve on the wrong chip (a ~21'x12'
+    # field offset half a degree from the imaging field) — so name it. The
+    # main camera is the one with the larger chip.
+    cams = air.call("get_connected_cameras", [], timeout=10).get("result") or []
+    main = max(cams, key=lambda c: c.get("chip_size", [0, 0])[0], default=None)
+    if not main:
+        print("no cameras reported by the Air", file=sys.stderr)
+        return 1
+    air.call("open_camera", [main["name"]], timeout=25)
+    print(f"main camera: {main['name']}")
 
     params = [a.ra, a.dec, a.angle]   # matches startAutoGoto(ra, dec, angle)
     print("start_auto_goto ->", air.call("start_auto_goto", params, timeout=15).get("result"))

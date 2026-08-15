@@ -6,7 +6,7 @@ Guide methods are UNPREFIXED on 4400 (`guide`, `loop`, `get_app_state`,
 names but live on a separate service, so no clash. No auth on 4400.
 
 Typical night-sky flow (each step needs the previous):
-    connect on            # set_connected([true])  -> connect the guide cam
+    connect on            # set_connected([{"camera": true}]) -> connect guide cam
     expose 1000           # set_exposure([ms])
     loop                  # start looping (state -> Looping)
     start                 # guide([settle]) -> Calibrating -> Guiding (SLEWS to calibrate)
@@ -28,8 +28,14 @@ from air_rpc import Air
 
 PORT = 4400
 
-# Default dither/settle config — fields lifted from the app's DitherConfig.
-DEFAULT_SETTLE = {
+# `guide` wants a PHD2-style settle object — pixels/time/timeout, list-wrapped.
+# Verified on sky 2026-08-10.
+DEFAULT_SETTLE = {"pixels": 1.5, "time": 10, "timeout": 60}
+
+# NOT what `guide` takes: this is the app's DitherConfig, kept for reference
+# because it is easy to reach for by mistake. Passing it to `guide` returns
+# 102 "invalid params".
+DITHER_CONFIG = {
     "enable": True, "ra_only": False, "amount": 5,
     "settle_arcsec": 1.5, "settle_time_sec": 10, "settle_timeout_sec": 60,
 }
@@ -60,7 +66,17 @@ class Guide:
     # (dither pauses the main imaging camera, so the Air keeps it on 4700.)
 
     # --- setup (safe: no mount motion) ---
-    def set_connected(self, on):  return self._r("set_connected", [bool(on)])
+    # set_connected takes a Camera bean, NOT a bare bool: [{"camera": true}].
+    # The same call connects the MOUNT with a different field — that is the
+    # only way back after an Air restart without reaching for the phone.
+    def set_connected(self, on):
+        return self._r("set_connected", [{"camera": bool(on)}])
+
+    def set_mount_connected(self, on=True):
+        return self._r("set_connected", [{"mount": bool(on)}])
+
+    def set_camera_idx(self, idx):
+        return self._r("set_camera_idx", [int(idx)])
     def set_exposure(self, ms):   return self._r("set_exposure", [int(ms)])
     def loop(self):               return self._r("loop")
     def stop(self):               return self._r("stop_capture")

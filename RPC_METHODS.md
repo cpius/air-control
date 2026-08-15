@@ -31,7 +31,10 @@ Param shapes below marked ✓ are confirmed from the app's `MountGateway`.
 Why this was needed: the seestar_alp `scope_*` / `iscope_*` names all return
 `103 method-not-found` on ASIAIR, and the mount does **not** use the
 `open_<device>` connect path (that's camera/focuser/wheel only). The mount has
-its own vocabulary and connects via `set_mount`.
+its own vocabulary and connects via **`set_connected([{"mount": true}])`** —
+the same call that connects the guide camera, with a different field.
+(An earlier note here said `set_mount`; that name returns `103` on both ports.
+Corrected 2026-08-15 after connecting the mount this way live.)
 
 All mount methods below are on **port 4400** (no auth). Coordinates: **RA in
 hours, Dec/Alt/Az in degrees.**
@@ -40,7 +43,10 @@ hours, Dec/Alt/Az in degrees.**
 
 | Method | Params | Purpose |
 |---|---|---|
-| `mount_scan_port` | — | Scan serial ports for a mount |
+| `set_connected` | `[{"mount": true}]` ✓ | **Connect the mount.** The way back after an Air restart |
+| `scope_get_location` / `scope_set_location` | — / `[lat, lon]` ✓ | Site position. **Wiped to `[0.0,-0.0]` by a restart** |
+| `scope_get_time` / `scope_set_time` | — / `[str]` ✓ | Clock; survives a restart |
+| `mount_scan_port` | — ✓ | Scan serial ports (`/dev/ttyACM0` for the AM5N over USB) |
 | `get_mount_list` | — ✓ | Driver list; the index maps to a mount model |
 | `select_mount_list_index` | `[index]` | Pick the mount driver (index 1 = ZWO AM3/AM5/AM7) |
 | `select_serial_dev` | `[dev]` | Choose the serial device |
@@ -155,6 +161,11 @@ method taking a **float** (e.g. `0.5`), not one of these guide methods.
 `start_polar_align` · `stop_polar_align` · `get_polar_align_image` ·
 `set_polar_align_image` · `get_polar_axis`
 
+These are on **4700**. `start_polar_align` will not run until you call
+`set_page(["pa"])` first, and it takes a bare object — see
+[Polar alignment needs `set_page`](#polar-alignment-needs-set_page) below for
+the working sequence, the result shape, and the near-pole failure mode.
+
 ## Also confirmed live (firmware 43.97), for reference
 
 Device-open (global): `open_camera` / `close_camera`, `open_focuser` /
@@ -166,6 +177,90 @@ Device-open (global): `open_camera` / `close_camera`, `open_focuser` /
 `get_app_setting`, `get_setting`, `get_test_setting`, `get_svr_version`,
 `pi_get_info`, `pi_station_state`. Exposure: `set_exposure`, `start_exposure`,
 `stop_exposure`.
+
+## Operational traps (learned on sky, 2026-08-10/15)
+
+Each of these presents as a hardware fault and isn't one.
+
+### Coordinates are JNow, not J2000
+
+`scope_goto`, `start_auto_goto` and the plate solver all work in **apparent
+coordinates of date**. The system is self-consistent, so feeding J2000 converges
+beautifully onto the wrong patch of sky with nothing appearing wrong — verified
+by sending Arcturus's J2000 position, watching `start_auto_goto` report the field
+centre as exactly those numbers, and finding no Arcturus anywhere in the 30'x17'
+frame. The JNow position put it 1.6' from centre. In 2026 the offset is ~18' in
+RA, comparable to the whole field at 1260 mm.
+
+`get_last_solve_result.ra_dec` is JNow too, and **the Air auto-syncs the mount to
+every successful solve** — so a pointing error computed right after a solve reads
+zero by construction.
+
+### Exposures over ~10 s need a keepalive
+
+The Air drops an **idle 4700 socket after ~15 s**. Fire `start_exposure`, wait in
+silence, and you are disconnected before the `Exposure complete` event — the
+failure looks like a camera problem but the camera is fine. Poke any cheap read
+(`get_camera_state`) every ~4 s while waiting. Fixed in `starhunt.py`'s
+`Camera.grab`; 30 s and 60 s subs verified.
+
+### Polar alignment needs `set_page`
+
+`start_polar_align` takes a **bare object** (list-wrapping → `107`), and returns
+`300 internal error` until you first call `set_page(["pa"])`. Results come from
+`get_polar_axis` → `{centre_deg:[az,alt], polar_deg:[az,alt], dist_arcsec, …}`.
+
+Two live caveats: pointing near the pole (Dec +79) makes the RA-rotation geometry
+degenerate and the solution **diverges** across successive reads (3.2° → 7.4° →
+11.4°) — use Dec 30–50°. And a stall showing `pa.mount_move_ok: false` with no
+exposures at all is still unexplained; check the **site location** first (below),
+since at latitude 0 the routine's geometry is nonsense.
+
+### `guide` wants a PHD2 settle object
+
+```
+guide  [{"pixels": 1.5, "time": 10, "timeout": 60}]
+```
+The app's `DitherConfig` (`enable`/`ra_only`/`amount`/`settle_arcsec`/…) is a
+different bean and is rejected `102`.
+
+### Recovering from an Air restart, without the phone
+
+A restart drops every device and **silently wipes the site location**:
+
+```
+4400: set_connected([{"mount": true}])            # mount
+4700: open_camera(["ZWO ASI585MC Air"])           # main cam, by NAME
+4700: open_focuser([0])                           # by ID; the name gives 524
+4400: set_camera_idx([0]) ; set_connected([{"camera": true}])   # retry: 207 first try
+```
+
+**The site location is the trap inside the trap.** Both a restart *and* attaching
+the mount zero it to `[0.0, -0.0]`, and the wipe lands **asynchronously, after
+`set_connected` has already returned** — so writing the location immediately just
+gets overwritten. Worse, `scope_set_location([lat, lon])` can read back correctly
+from both `scope_get_location` and `scope_get_info.Lat` and still revert ~20–25 s
+later (measured 2026-08-15).
+
+The only reliable pattern is write-then-verify, repeated while the attach
+settles: `mount.py connect --lat <lat> --lon <lon>` does exactly that, and
+`mount.py location` re-checks it. Setting it from the app is durable.
+
+Sanity check: with Dec `+90`, `scope_get_info.Alt` must equal your latitude. At
+lat 0 it reads `0.00` and every alt/az, horizon check and polar-align result is
+quietly wrong — this is a prime suspect for the `mount_move_ok: false` stall.
+
+### Error codes as a param-shape oracle
+
+| Code | Meaning | What to change |
+|---|---|---|
+| `103` | method not found | wrong name, or wrong port (mount/guide live on 4400) |
+| `102` | invalid params | wrapping is right, **fields** are wrong |
+| `107` | expected object param | wrapping is wrong — try a bare object |
+| `104` / `105` / `108` | expected int / string / float | scalar param, type named for you |
+
+`102` vs `107` identifies a bean fast: `107` means stop list-wrapping, `102`
+means keep the list and fix the keys.
 
 ## Extraction recipe
 
