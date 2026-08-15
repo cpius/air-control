@@ -14,7 +14,8 @@ Method names + param shapes lifted from the ASIAIR app's MountGateway
     python3 mount.py track on|off         # sidereal tracking
     python3 mount.py goto <ra_h> <dec_d>  # slew (asks nothing — caller decides)
     python3 mount.py sync <ra_h> <dec_d>  # sync pointing model
-    python3 mount.py park                  # park; 'abort' stops a slew
+    python3 mount.py park                  # send home, wait for it to land
+    python3 mount.py abort                 # stop a slew in progress
 """
 
 import argparse
@@ -150,12 +151,46 @@ class Mount:
     def horiz(self):       return self._r("scope_get_horiz_coord")  # [alt, az]
     def tracking(self):    return self._r("scope_get_track_state")
 
+    # --- waiting on motion ---
+    def _wait_event(self, name, timeout=120.0, poll=0.2, on_progress=None):
+        """Block until Event `name` reports state="complete". Returns the event.
+
+        The Air streams progress on the same socket as the RPC replies:
+        repeated {"Event": "ScopeHome", "state": "working", "lapse_ms": N,
+        "RA": .., "Dec": ..} and finally the same with state="complete"
+        (packet capture 2026-08-15; ScopeGoto has an identical shape).
+
+        Do NOT wait on `is_home_succeed` from scope_get_info instead — it stays
+        False even after a confirmed "complete", so polling it just burns the
+        whole timeout. Position is no good either: park is a re-home routine,
+        not a monotonic approach (Dec ran 87 -> 88.3 -> 86.8 -> 89.2 -> 90), and
+        the target position is reached fractionally *before* "complete".
+
+        Raises TimeoutError if the completion never arrives.
+        """
+        end = time.time() + timeout
+        last = None
+        while time.time() < end:
+            for ev in self.air.drain_events():
+                if ev.get("Event") != name:
+                    continue
+                last = ev
+                if on_progress:
+                    on_progress(ev)
+                if ev.get("state") == "complete":
+                    return ev
+            time.sleep(poll)
+        raise TimeoutError(
+            f"{name} did not report state=complete within {timeout:.0f}s"
+            + (f"; last progress: {json.dumps(last, ensure_ascii=False)}" if last
+               else f" (no {name} events seen at all)"))
+
     # --- control (moves hardware) ---
     def set_tracking(self, on):     return self._r("scope_set_track_state", [bool(on)])
     def goto(self, ra_h, dec_d):    return self._r("scope_goto", [float(ra_h), float(dec_d)])
     def sync(self, ra_h, dec_d):    return self._r("scope_sync", [float(ra_h), float(dec_d)])
     def move(self, direction):      return self._r("scope_move", [str(direction)])
-    def park(self):
+    def park(self, wait=True, timeout=120.0, on_progress=None):
         """Send the mount to its HOME / zero position (Dec 90).
 
         On the AM5N park == home: this is exactly what the app's "Go Home"
@@ -163,8 +198,28 @@ class Mount:
         {"id":N,"method":"scope_park"} with no params). The Air then emits
         ScopeHome progress events until state="complete". Use this to rebuild
         the pointing reference after the mount has been physically moved.
+
+        With wait=True this returns once the Air reports the home move complete
+        (~5 s on an AM5N), not merely once the command was accepted. Falls back
+        to a position check if the completion event never shows up, so a
+        firmware that stops emitting ScopeHome degrades to the old behaviour
+        rather than raising on a mount that did in fact get home.
         """
-        return self._r("scope_park")
+        self.air.drain_events()      # stale ScopeHome would complete instantly
+        r = self._r("scope_park")
+        if not wait:
+            return r
+        try:
+            self._wait_event("ScopeHome", timeout=timeout, on_progress=on_progress)
+        except TimeoutError as e:
+            st = self.state()
+            if abs(st["Dec"] - 90.0) < 0.05 and st.get("move_status") in (None, "none"):
+                print(f"WARNING: {e}\n  ... but the mount is at Dec "
+                      f"{st['Dec']:.4f} and idle, so treating it as homed.",
+                      file=sys.stderr)
+                return r
+            raise
+        return r
     def abort(self):                return self._r("scope_abort_slew")
 
     def close(self):
@@ -178,7 +233,11 @@ def main():
                     help="Air IP address (or set the ASIAIR_HOST env var)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("info"); sub.add_parser("coord"); sub.add_parser("caps")
-    sub.add_parser("list"); sub.add_parser("park"); sub.add_parser("abort")
+    sub.add_parser("list"); sub.add_parser("abort")
+    pk = sub.add_parser("park", help="send the mount home and wait for it to land")
+    pk.add_argument("--no-wait", action="store_true",
+                    help="return as soon as the Air accepts the command")
+    pk.add_argument("--timeout", type=float, default=120.0)
     cn = sub.add_parser("connect")
     cn.add_argument("--lat", type=float, help="restore the site after connecting")
     cn.add_argument("--lon", type=float)
@@ -213,7 +272,17 @@ def main():
         elif a.cmd == "move":
             print("move ->", mnt.move(a.direction))
         elif a.cmd == "park":
-            print("park ->", mnt.park())
+            t0 = time.time()
+            show = lambda ev: print(f"  [{ev.get('lapse_ms', 0)/1000:5.1f}s] "
+                                    f"{ev.get('state'):<8} Dec={ev.get('Dec'):.4f}",
+                                    flush=True)
+            print("park ->", mnt.park(wait=not a.no_wait, timeout=a.timeout,
+                                      on_progress=show))
+            if not a.no_wait:
+                st = mnt.state()
+                print(f"home reached in {time.time() - t0:.1f}s: "
+                      f"Dec={st['Dec']:.4f} Alt={st['Alt']:.2f} "
+                      f"tracking={mnt.tracking()}")
         elif a.cmd == "connect":
             restore = (a.lat, a.lon) if a.lat is not None and a.lon is not None else None
             was = mnt.ensure_connected(restore=restore)
