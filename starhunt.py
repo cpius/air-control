@@ -109,11 +109,21 @@ class Camera:
         return self._call("get_focal_length") or 0
 
     def grab(self, exp_s, gain):
+        """Expose and download. Anything over ~10s needs the keepalive below.
+
+        The Air drops an idle 4700 socket after ~15s. A client that fires
+        start_exposure and then waits in silence gets disconnected before the
+        'complete' event arrives, so long exposures fail with "exposure did not
+        complete" while the camera is in fact perfectly happy. Poking a cheap
+        read every few seconds keeps the connection up. Note we poke through
+        self.air directly rather than self._call: _call's reconnect would swap
+        the socket and take the queued events with it.
+        """
         self._call("set_control_value", ["Exposure", int(exp_s * 1_000_000)])
         self._call("set_control_value", ["Gain", int(gain)])
         self.air.drain_events()
         self._call("start_exposure")
-        t0 = time.time()
+        t0 = last_poke = time.time()
         done = False
         while time.time() - t0 < exp_s + 40:
             for e in self.air.drain_events():
@@ -121,6 +131,12 @@ class Camera:
                     done = True
             if done:
                 break
+            if time.time() - last_poke > 4:
+                try:
+                    self.air.call("get_camera_state", [], timeout=8)
+                except Exception:
+                    pass          # the download path below re-establishes if needed
+                last_poke = time.time()
             time.sleep(0.2)
         if not done:
             raise RuntimeError("exposure did not complete")
