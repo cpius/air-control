@@ -311,6 +311,102 @@ quietly wrong — this is a prime suspect for the `mount_move_ok: false` stall.
 `102` vs `107` identifies a bean fast: `107` means stop list-wrapping, `102`
 means keep the list and fix the keys.
 
+Codes seen since: `109` unexpected param (a valid enum, wrong member — e.g.
+`set_page(["autorun"])`), `224` cannot edit sequence unless reset the progress,
+`206` capture is active, `207` fail to operate (often just needs a retry, or a
+stuck exposure cleared), `238` exposure failed, `252` auto goto failed,
+`305` could not set lock position, `312` cannot select if equipment are
+connected, `318` device not connected.
+
+### Probing `set_*` can apply a value
+
+The oracle is safe for `get_*`. It is **not** safe for setters: a `set_*` probed
+with junk can accept it and write. `scope_set_location(["__probe__"])` returns an
+error and still wipes the site to `[0, 0]`. `set_plan([])` returns `0` outright.
+Probe setters by name only if you are willing to have them take effect, and
+snapshot the current value first.
+
+### `start_*` methods FIRE when probed with no params
+
+Worse than the setters, because some simply run. `start_auto_focuse` with an
+empty param list returns `0` and **starts an autofocus** — it stopped an
+exposure mid-frame and dropped guiding. Probe `start_*` names only when the rig
+is idle and you would accept them running.
+
+### `start_auto_focuse` leaves the camera faulted
+
+After it runs, every subsequent exposure returns
+`Exposure {state: "fail", error: "exposure failed", code: 238}` — indefinitely,
+while `get_camera_state` still cheerfully reports `idle` with the camera open.
+The fix is `close_camera` then `open_camera([name])`; nothing less clears it.
+
+Related: with no params it does not sweep. It returns in ~16 s having taken a
+single exposure, emits an `AutoFocus` event whose `result` is byte-identical
+across runs (`x_scale`, `y_scale` unchanged), and moves the focuser to a
+remembered position. Treat a bare `start_auto_focuse` as "replay the last
+result", not "measure focus".
+
+### `AutoGotoStep` failing with 252 on the first attempt is normal
+
+`{"Event":"AutoGotoStep","state":"fail","count":1,"error":"auto goto failed",
+"code":252}` is what a *healthy* solve-and-centre looks like: the routine
+retries and completes on attempt 2. The app's own runs do this too. Do not
+treat a single 252 as fatal — and note the target object keeps the stale
+`code: 252` afterwards, so reading it later is misleading.
+
+### The first `scope_get_info` on a fresh 4400 socket can be garbage
+
+Immediately after connecting, the first read sometimes returns plausible but
+wrong values — an RA about 4° off in one measured case, which then got written
+into a FITS header, and a `tracking: false` while the mount was demonstrably
+tracking. Subsequent reads on the same socket are correct. Discard the first
+read, or re-read before recording anything.
+
+### `SettleDone` with `TotalFrames` at the timeout is a failed settle
+
+`{"Event":"SettleDone","Status":1,...}` means the settle never converged;
+`Status: 0` is success. The frame count is the giveaway: at 4 s guide exposures
+a timed-out settle reports `TotalFrames: 16` — the full 60 s
+`settle_timeout_sec` — whereas a real settle completes in about 6. At 3 s
+exposures the same timeout reads as 20-21 frames, so compare against the
+exposure length, not the number.
+
+A settle that keeps timing out is usually one of: a duration cap truncating
+corrections (see below), a `settle_arcsec` tighter than the guiding can
+achieve, or a stale calibration used at a different declination.
+
+### Guide tuning lives in `set_setting` on 4400, not in the algo params
+
+`get_algo_param_names(["dec"])` returns only
+`["minMove", "fastSwitch", "aggression"]` (and `hysteresis` in place of
+`fastSwitch` for `ra`) — the max pulse durations are **not** there. They are in
+a separate write-only bag:
+
+```
+set_setting([{"max_dec_dur": 1500}])     # ms; default 500
+set_setting([{"max_ra_dur":  1500}])
+set_setting([{"focallength": 1263}])     # mm, the guider's own
+```
+
+`get_setting` on 4400 returns `{}` regardless of arguments, so there is no
+read-back — verify by behaviour. At the 500 ms default with a 0.25x guide rate
+a pulse can only deliver 1.88", so corrections needing more were truncated,
+leaving a one-sided Dec bias and an `Alert` code `415` about Max Dec Duration.
+Guide rate and duration cap interact: a slow rate demands a generous cap.
+
+### Dithering only works from the sequence runner
+
+Two ways to dither from outside it, both no-ops (measured by cross-correlating
+consecutive subs — 0.0 px field shift, against a method validated on injected
+shifts):
+
+- `dither(<float>)` on 4400 is accepted and does nothing.
+- Offsetting the lock with `set_lock_position` is reverted within seconds — the
+  Air snaps it straight back.
+
+The runner's own dither does work: `Dither` on 4700, then `LockPositionSet` and
+`GuidingDithered {dx,dy}` on 4400. If you need dithering, drive an autorun.
+
 ## Extraction recipe
 
 ```bash
