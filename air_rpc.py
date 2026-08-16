@@ -110,6 +110,16 @@ class Air:
         if key:
             self.verify(key)
 
+    @property
+    def alive(self):
+        """False once the reader thread has seen the socket close.
+
+        Worth checking in any long wait: 4400 hangs up a connection that has
+        been idle ~15s, and on a dead socket a quiet event queue is
+        indistinguishable from a slew still in progress.
+        """
+        return self._alive
+
     def verify(self, key_path, timeout=8):
         """Complete the RSA challenge handshake; unlocks the gated methods.
 
