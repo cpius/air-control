@@ -18,6 +18,8 @@ channel — uses ZWO's RSA challenge handshake.
 | Alpaca **TCP** | none | ASCOM Alpaca REST — **camera control**. Port is discovered (it's `32323` on the built-in Air units) |
 | **4700** | RSA handshake | Native ASIAIR RPC — camera, focuser, filter wheel, plate solve, sequences, settings, telemetry |
 | **4400** | none | Native ASIAIR RPC — **mount + guiding** (`scope_*` and guide commands) |
+| **4800** | none | MainImageSocket — pull the last captured frame down natively (`main_image.py`) |
+| **4500** | none | Guide image stream — frames produced by `loop` on 4400 |
 
 `4700` and `4400` are ASIAIR firmware ports and are the same across the product
 line; the Alpaca port can vary, so discover it. The Air may not answer ICMP (mine
@@ -148,6 +150,29 @@ own. Whether voltage is a usable fuel gauge depends on the supply: a regulated
 output holds flat and then collapses, giving little notice, while an unregulated
 one sags gradually. One full run-to-flat tells you which you have.
 
+## 6. Frames are not saved unless you run a sequence
+
+Worth knowing before a long night: everything driven through the **preview** page
+is transient. `start_exposure` there exposes, and the frame can be pulled down
+off port 4800 —
+
+```bash
+python3 main_image.py --host <air-ip> --out frame    # last captured frame
+```
+
+— but the Air never writes it to its own storage, and **no dithering happens**.
+Both come from the Air's sequence runner, which is a different page and a
+different call:
+
+```
+set_page(["autosave"]) -> set_sequence([...]) -> set_sequence_setting([...])
+-> start_exposure(["light"])
+```
+
+That is the only path that saves to eMMC and dithers between frames. The full
+shape, and the four details that each break it silently, are in
+[`RPC_METHODS.md`](RPC_METHODS.md) under *Autorun*.
+
 ## Files
 
 | File | What it does |
@@ -159,6 +184,10 @@ one sags gradually. One full run-to-flat tells you which you have.
 | `guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `start`, `stop`. |
 | `solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
 | `telemetry.py` | Log supply voltage + the Air's undervolt flag to CSV, so a flat battery is distinguishable from a crash. |
+| `main_image.py` | Native MainImageSocket client on 4800: pull the last captured frame. |
+| `joystick.py` | Directional mount control on 4400 (`scope_move`) + slew-rate calibration. |
+| `starhunt.py` | Joystick-driven star search, for when plate solving isn't available. |
+| `demo_slew.py` | Small self-returning demonstration slew — a safe first move. |
 | `extract_key.py` | Pull the RSA interop key out of an ASIAIR APK/XAPK into `embedded_key.pem`. |
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
