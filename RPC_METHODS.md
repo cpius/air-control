@@ -113,6 +113,43 @@ guide image stream, **TCP 4500** (`GuideImageSocket`), and returns
 revision of this doc claimed the sensor only opens with the app's engine running
 — that was wrong; the `set_connected` object shape was.)
 
+### Watching the guide camera live — TCP 4500
+
+The app shows both sensors side by side because the guide camera has its own
+image socket. **No camera swapping is needed**: the main camera stays open on
+4700/4800 throughout. `GuideImageSocket` and `MainImageSocket` are siblings in
+`com.zwoasi.kit.socket` over one `ImageSocketRuntime` and one `HeaderData`, so
+the framing is the same 80-byte big-endian header as 4800 (magic 963).
+
+Verified live 2026-08-16, firmware 43.97:
+
+```
+4400: set_camera_idx([0])                 # FIRST, or the rest silently fails
+4400: set_connected([{"camera": true}])
+4400: loop()
+4500: connect  ->  begin_streaming        # id 2; then frames arrive
+```
+
+- **`set_camera_idx` must precede `set_connected`.** Without it `set_connected`
+  still returns `0` while leaving the sensor unattached, and `loop` then fails
+  `303 could not start looping`.
+- **`begin_streaming` is required.** Connecting to 4500 and waiting yields
+  silence indefinitely even while the guide camera loops. There is no polling
+  form — `get_current_img` and `get_star_image` both return `unknown mothod`
+  (the firmware's spelling), so the socket is stream-only. `stop_streaming`
+  (id 3) ends it.
+- **`set_exposure` does not affect a running stream.** Frames continue at the
+  old exposure until `stop_capture` then `loop`.
+- **No heartbeat needed**, unlike 4800: a client silent for 15 s is not dropped.
+
+Frames are **640x360 8-bit raw**, 230400 bytes, `dataType` 2 — a downscaled
+preview of the 960x540 sensor, not full-resolution data. `hfd`/`hfdX`/`hfdY`
+read `0`/`65535`/`65535` with no star selected and carry the Air's own guide
+star measurement once one is locked, which makes this the cheap way to check
+guide-side focus. `test_connection` on this socket answers `server connected!`.
+
+`guide_image.py` implements all of the above.
+
 ### Camera / session
 | Method | Params | Purpose |
 |---|---|---|

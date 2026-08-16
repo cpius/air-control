@@ -185,6 +185,7 @@ shape, and the four details that each break it silently, are in
 | `solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
 | `telemetry.py` | Log supply voltage + the Air's undervolt flag to CSV, so a flat battery is distinguishable from a crash. |
 | `main_image.py` | Native MainImageSocket client on 4800: pull the last captured frame. |
+| `guide_image.py` | Watch the guide camera live on 4500, without disturbing the main camera. |
 | `joystick.py` | Directional mount control on 4400 (`scope_move`) + slew-rate calibration. |
 | `starhunt.py` | Joystick-driven star search, for when plate solving isn't available. |
 | `demo_slew.py` | Small self-returning demonstration slew — a safe first move. |
