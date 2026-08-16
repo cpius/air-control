@@ -28,8 +28,13 @@ from air_rpc import Air
 
 PORT = 4400
 
-# `guide` wants a PHD2-style settle object — pixels/time/timeout, list-wrapped.
-# Verified on sky 2026-08-10.
+# `guide` wants a PHD2-style settle object — pixels/time/timeout — followed by a
+# recalibrate bool. Verified on sky 2026-08-10; the trailing bool was confirmed
+# from the app's own traffic 2026-08-16.
+#
+# The app itself sends the looser {"pixels": 3, "time": 5, "timeout": 60}. Kept
+# tighter here deliberately: on a fainter guide star the loose form settles
+# sooner but starts the sub with the star still drifting.
 DEFAULT_SETTLE = {"pixels": 1.5, "time": 10, "timeout": 60}
 
 # NOT what `guide` takes: this is the app's DitherConfig, kept for reference
@@ -82,8 +87,38 @@ class Guide:
     def stop(self):               return self._r("stop_capture")
     def clear_calibration(self):  return self._r("clear_calibration")
 
+    def set_lock_position(self, x, y, exact=False):
+        """Pick the guide star, in the guide service's own coordinate space.
+
+        That space is `get_camera_info.full_size` — **not** sensor pixels. On the
+        ASI220MM it reports [960, 540] because the guide stream is binned 2x2, so
+        a star found at (712, 435) on the 1920x1080 sensor is set as (356, 218).
+
+        Three params: [x, y, exact]. The trailing bool is easy to miss, and
+        omitting it is worse than an error — the two-param form is accepted and
+        then silently reverted a few seconds later, so the lock appears to take
+        and does not. Verified against the app's traffic 2026-08-16.
+
+        The Air snaps the value to the actual star centroid, so reading it back
+        returns something near, not equal to, what you set. `305 could not set
+        lock position` means there is no star at those coordinates.
+
+        Needed because guide-star **auto-selection does not work over RPC** —
+        `loop` alone leaves the state at `Looping` indefinitely, however rich the
+        field. Only the app auto-selects; from here you must pick the star.
+        """
+        return self._r("set_lock_position", [float(x), float(y), bool(exact)])
+
     # --- guiding (calibration SLEWS the mount) ---
-    def start(self, settle=None): return self._r("guide", [settle or DEFAULT_SETTLE])
+    def start(self, settle=None, recalibrate=False):
+        """Settle spec plus a trailing bool: [settle, recalibrate].
+
+        The repo previously sent a one-element list. The app sends two — verified
+        on the wire 2026-08-16 — and the second controls whether calibration is
+        redone rather than reused. Passing False reuses an existing calibration,
+        which turns a ~7 minute start into ~10 seconds.
+        """
+        return self._r("guide", [settle or DEFAULT_SETTLE, bool(recalibrate)])
 
     def close(self):
         self.air.close()
@@ -96,7 +131,12 @@ def main():
                     help="Air IP address (or set the ASIAIR_HOST env var)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("state"); sub.add_parser("cameras")
-    sub.add_parser("loop"); sub.add_parser("stop"); sub.add_parser("start")
+    sub.add_parser("loop"); sub.add_parser("stop")
+    st = sub.add_parser("start")
+    st.add_argument("--recalibrate", action="store_true",
+                    help="redo calibration instead of reusing it (~7 min vs ~10 s)")
+    lk = sub.add_parser("lock", help="select the guide star (guide-space coords)")
+    lk.add_argument("x", type=float); lk.add_argument("y", type=float)
     sub.add_parser("calibrated"); sub.add_parser("history")
     c = sub.add_parser("connect"); c.add_argument("state", choices=["on", "off"])
     e = sub.add_parser("expose"); e.add_argument("ms", type=int)
@@ -115,8 +155,11 @@ def main():
             print("set_exposure ->", g.set_exposure(a.ms))
         elif a.cmd == "loop":
             print("loop ->", g.loop())
+        elif a.cmd == "lock":
+            print(f"set_lock_position({a.x}, {a.y}) ->", g.set_lock_position(a.x, a.y))
+            print("lock now:", g._r("get_lock_position"), "| state:", g.state())
         elif a.cmd == "start":
-            print("guide (calibrate+guide) ->", g.start())
+            print("guide ->", g.start(recalibrate=a.recalibrate))
         elif a.cmd == "stop":
             print("stop_capture ->", g.stop())
         elif a.cmd == "calibrated":
