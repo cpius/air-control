@@ -128,6 +128,26 @@ Plate-solve-and-center uses both channels — the native `start_auto_goto` on 47
 python3 solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon targets
 ```
 
+## 5. Power telemetry — is it dead, or just flat?
+
+A battery running out looks exactly like a crashed Air from the network side:
+no reply to ping, ARP `(incomplete)`, every port closed, subnet sweep empty. Two
+signals precede it, and `telemetry.py` appends both to a CSV so the failure can
+be seen coming — and so the moment of loss is itself recorded, as a row with an
+empty voltage and `note=unreachable`.
+
+```bash
+python3 telemetry.py --host <air-ip>                       # voltage only, 60s rows
+python3 telemetry.py --host <air-ip> --key embedded_key.pem  # + undervolt/temp
+python3 telemetry.py --host <air-ip> --once                # single reading
+```
+
+`scope_get_info.input_voltage` (4400, millivolts) is the mount's supply;
+`PiStatus.is_undervolt` (4700, needs the key) is the Air complaining about its
+own. Whether voltage is a usable fuel gauge depends on the supply: a regulated
+output holds flat and then collapses, giving little notice, while an unregulated
+one sags gradually. One full run-to-flat tells you which you have.
+
 ## Files
 
 | File | What it does |
@@ -138,6 +158,7 @@ python3 solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon t
 | `mount.py` | Mount control on 4400: `info`, `coord`, `track`, `goto`, `sync`, `park`. |
 | `guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `start`, `stop`. |
 | `solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
+| `telemetry.py` | Log supply voltage + the Air's undervolt flag to CSV, so a flat battery is distinguishable from a crash. |
 | `extract_key.py` | Pull the RSA interop key out of an ASIAIR APK/XAPK into `embedded_key.pem`. |
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
