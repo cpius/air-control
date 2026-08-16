@@ -34,7 +34,8 @@ PORTS = {
     4361: "OTA data (legacy)",
     5000: "http (alt)",
     8080: "http (alt)",
-    11111: "ASCOM Alpaca  <-- documented REST API",
+    11111: "ASCOM Alpaca (standard port — this Air does NOT use it)",
+    32323: "ASCOM Alpaca  <-- documented REST API, the port this Air serves",
 }
 
 ALPACA_DISCOVERY_PORT = 32227
@@ -127,8 +128,14 @@ def scan_host(host, ports=None):
     return sorted(open_ports)
 
 
-def sweep(subnet, key_ports=(4700, 11111)):
-    """Sweep a /24 for the ports that positively identify an Air."""
+def sweep(subnet, key_ports=(4700, 32323, 11111)):
+    """Sweep a /24 for the ports that positively identify an Air.
+
+    32323 matters: this Air serves Alpaca there, not on the ASCOM-default
+    11111 (see alpaca.py). Sweeping only 4700 and 11111 finds nothing when
+    the RPC channel is down but Alpaca is up. 11111 stays in the list so a
+    stock-port Alpaca server would still be spotted.
+    """
     hits = {}
     hosts = [f"{subnet}.{i}" for i in range(1, 255)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=200) as ex:
@@ -179,7 +186,7 @@ def main():
     print("\n".join(f"    {l}" for l in lines) if lines else "    (nothing advertised)")
     print()
 
-    print("[3] TCP sweep for ports 4700 (ASIAIR RPC) and 11111 (Alpaca) ...")
+    print("[3] TCP sweep for ports 4700 (ASIAIR RPC) and 32323/11111 (Alpaca) ...")
     hits = sweep(subnet)
     if not hits:
         print("    nothing found — is the Air powered on and on this network?")
