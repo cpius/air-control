@@ -38,6 +38,29 @@ def build_cmd(cmd_id, method, params=None):
             % (cmd_id, method, json.dumps(params))).encode()
 
 
+def parse_header(h):
+    """Decode the 80-byte image header. Shared with the guide stream on 4500 —
+    both sockets are `com.zwoasi.kit.socket.*ImageSocket` over the same
+    `ImageSocketRuntime` and the one `HeaderData` class, so the framing is
+    identical. The hfd fields only carry meaning on the guide side."""
+    magic = struct.unpack(">H", h[0:2])[0]
+    if magic != MAGIC:
+        raise IOError(f"bad magic {magic} (expected {MAGIC})")
+    return {
+        "magic": magic,
+        "version": struct.unpack(">H", h[2:4])[0],
+        "length": struct.unpack(">i", h[6:10])[0],
+        "isBigEndian": h[12], "imgType": h[13], "dataType": h[14], "id": h[15],
+        "width": struct.unpack(">H", h[16:18])[0],
+        "height": struct.unpack(">H", h[18:20])[0],
+        "hfdX": struct.unpack(">H", h[20:22])[0],
+        "hfdY": struct.unpack(">H", h[22:24])[0],
+        "hfd": struct.unpack(">H", h[24:26])[0],
+        "canDebayer": struct.unpack(">H", h[26:28])[0],
+        "imageID": struct.unpack(">H", h[28:30])[0],
+    }
+
+
 class MainImage:
     def __init__(self, host=HOST, port=PORT, timeout=180):
         self.s = socket.create_connection((host, port), timeout=15)
@@ -70,24 +93,8 @@ class MainImage:
 
     def read_frame(self):
         """Return (header_dict, payload_bytes)."""
-        h = self._recv_exact(HDR)
-        magic = struct.unpack(">H", h[0:2])[0]
-        if magic != MAGIC:
-            raise IOError(f"bad magic {magic} (expected {MAGIC})")
-        length = struct.unpack(">i", h[6:10])[0]
-        hdr = {
-            "magic": magic,
-            "version": struct.unpack(">H", h[2:4])[0],
-            "length": length,
-            "isBigEndian": h[12], "imgType": h[13], "dataType": h[14], "id": h[15],
-            "width": struct.unpack(">H", h[16:18])[0],
-            "height": struct.unpack(">H", h[18:20])[0],
-            "hfdX": struct.unpack(">H", h[20:22])[0],
-            "hfdY": struct.unpack(">H", h[22:24])[0],
-            "hfd": struct.unpack(">H", h[24:26])[0],
-            "canDebayer": struct.unpack(">H", h[26:28])[0],
-            "imageID": struct.unpack(">H", h[28:30])[0],
-        }
+        hdr = parse_header(self._recv_exact(HDR))
+        length = hdr["length"]
         payload = self._recv_exact(length) if length > 0 else b""
         return hdr, payload
 
