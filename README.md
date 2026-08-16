@@ -119,7 +119,16 @@ python3 guide.py --host <air-ip> state                 # Idle / Looping / Guidin
 python3 guide.py --host <air-ip> connect on
 python3 guide.py --host <air-ip> expose 1000
 python3 guide.py --host <air-ip> loop
+python3 guide.py --host <air-ip> lock 356 218          # pick the guide star
+python3 guide.py --host <air-ip> start                 # calibrate (reuses) + guide
 ```
+
+**You have to pick the star yourself.** Guide-star auto-selection does not work
+over RPC — `loop` on its own sits at `Looping` indefinitely, however rich the
+field; only the app auto-selects. So find a star, then `lock` it. Coordinates
+are in the guide service's own space (`get_camera_info.full_size`), which is
+binned: [960, 540] on the ASI220MM, so a star at (712, 435) on the 1920x1080
+sensor is `lock 356 218`.
 
 Plate-solve-and-center uses both channels — the native `start_auto_goto` on 4700
 (needs the key) exposes, solves, and nudges the mount until centered:
@@ -136,7 +145,7 @@ python3 solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon t
 | `alpaca.py` | ASCOM Alpaca camera client + CLI; importable as `from alpaca import Alpaca`. |
 | `air_rpc.py` | Native 4700 RPC: `probe`, `call`, `console`, `listen`. `--key` runs the RSA handshake. |
 | `mount.py` | Mount control on 4400: `info`, `coord`, `track`, `goto`, `sync`, `park`. |
-| `guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `start`, `stop`. |
+| `guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `lock`, `start`, `stop`. |
 | `solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
 | `extract_key.py` | Pull the RSA interop key out of an ASIAIR APK/XAPK into `embedded_key.pem`. |
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
