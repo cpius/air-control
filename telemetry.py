@@ -6,12 +6,26 @@ no reply to ping, the ARP entry goes `(incomplete)`, every port closed, and a
 full subnet sweep finds nothing. Both signals that precede it are already being
 broadcast, so this records them:
 
-    4400  scope_get_info.input_voltage   supply to the AM5N, in millivolts
+    4700  get_power_supply               [[volts, amps]] — the primary source
+    4400  scope_get_info.input_voltage   fallback, in millivolts
     4700  PiStatus events                is_undervolt / is_over_current / temp
+
+**Prefer `get_power_supply`.** It works with nothing attached, whereas
+`scope_get_info` needs the mount connected and answers `mount is not connected`
+otherwise — which is the state after every Air restart, and precisely when you
+are trying to work out whether the battery died. The mount reading is kept as a
+fallback and cross-check. Treat the **voltage** as the trustworthy half of the
+pair: the current figure looks like one rail rather than total draw
+(13.2 V x 0.17 A = 2.2 W is far too low for the Air alone).
 
 `is_undervolt` is the Air complaining its own supply has sagged, which is the
 earlier of the two warnings. PiStatus needs the 4700 handshake, so pass --key
 for it; without a key the voltage half still works on its own.
+
+PiStatus cannot be requested — it is broadcast, and the cadence **varies with
+how busy the Air is**: measured at 2-4 s during an autorun but ~20 s idle. The
+polling loop picks one up between rows at any sensible interval; `--once` waits
+up to 25 s for one and says so if none arrives.
 
 **The rows that matter most are the ones where the read FAILS.** A poll that
 times out is written as a row with an empty voltage and `note=unreachable`,
@@ -44,8 +58,8 @@ from air_rpc import Air
 MOUNT_PORT = 4400
 MAIN_PORT = 4700
 KEEPALIVE_S = 4.0          # both ports drop an idle socket after ~15s
-FIELDS = ["time", "input_mv", "undervolt", "overcurrent", "pi_temp_c",
-          "alt", "az", "tracking", "note"]
+FIELDS = ["time", "volts", "amps", "input_mv", "undervolt", "overcurrent",
+          "pi_temp_c", "alt", "az", "tracking", "note"]
 
 
 class Link:
@@ -98,10 +112,21 @@ class Link:
         self.air = None
 
 
-def sample(mount, main, last_pi):
-    """One reading. Returns (row_dict, updated_last_pi)."""
+def sample(mount, main, last_pi, wait_pi=0.0):
+    """One reading. Returns (row_dict, updated_last_pi).
+
+    `wait_pi` seconds to block waiting for a first PiStatus (see below)."""
     row = {k: "" for k in FIELDS}
     row["time"] = datetime.datetime.now().isoformat(timespec="seconds")
+    reached = False
+
+    # Primary: works with nothing attached, unlike the mount's own reading.
+    if main is not None:
+        ps = main.call("get_power_supply")
+        if isinstance(ps, list) and ps and isinstance(ps[0], list) and len(ps[0]) >= 2:
+            row["volts"] = f"{float(ps[0][0]):.4f}"
+            row["amps"] = f"{float(ps[0][1]):.4f}"
+            reached = True
 
     st = mount.call("scope_get_info")
     if isinstance(st, dict):
@@ -113,13 +138,27 @@ def sample(mount, main, last_pi):
                 row[col] = f"{v:.2f}"
         trk = st.get("is_enable_track")
         row["tracking"] = "" if trk is None else int(bool(trk))
-    else:
+        reached = True
+    elif not reached:
         row["note"] = "unreachable"
+    else:
+        row["note"] = "mount detached"      # 4700 answered, so the Air is alive
 
     if main is not None:
         for e in main.events():
             if e.get("Event") == "PiStatus":
                 last_pi = e
+        # PiStatus cannot be requested, and its cadence varies with load —
+        # 2-4s during an autorun, ~20s idle. On the first sample nothing has
+        # arrived yet, so without a wait a --once run always reports a blank
+        # undervolt, the one field most worth having.
+        if last_pi is None and wait_pi > 0:
+            deadline = time.time() + wait_pi
+            while last_pi is None and time.time() < deadline:
+                time.sleep(0.3)
+                for e in main.events():
+                    if e.get("Event") == "PiStatus":
+                        last_pi = e
         main.call("test_connection")          # keepalive; events need no request
         if last_pi:
             row["undervolt"] = int(bool(last_pi.get("is_undervolt")))
@@ -131,10 +170,14 @@ def sample(mount, main, last_pi):
 
 
 def describe(row):
-    mv = row["input_mv"]
-    if mv == "":
+    if row["volts"] != "":
+        volts = f"{float(row['volts']):.2f} V"
+        if row["amps"] != "":
+            volts += f"  {float(row['amps']):.2f} A"
+    elif row["input_mv"] != "":
+        volts = f"{int(row['input_mv'])/1000:.2f} V (mount)"
+    else:
         return f"{row['time']}  --  {row['note'] or 'no reading'}"
-    volts = f"{int(mv)/1000:.2f} V"
     bits = [f"{row['time']}  {volts}"]
     if row["undervolt"] != "":
         bits.append("UNDERVOLT" if row["undervolt"] == 1 else "ok")
@@ -144,6 +187,8 @@ def describe(row):
         bits.append(f"pi {row['pi_temp_c']}C")
     if row["alt"] != "":
         bits.append(f"alt {row['alt']}")
+    if row["note"]:
+        bits.append(f"[{row['note']}]")
     return "  ".join(bits)
 
 
@@ -181,10 +226,14 @@ def main():
             while True:
                 now = time.time()
                 if now >= next_row:
-                    row, last_pi = sample(mount, main_link, last_pi)
+                    row, last_pi = sample(mount, main_link, last_pi,
+                                          wait_pi=25.0 if a.once else 0.0)
                     w.writerow(row); fh.flush()
                     print(describe(row), flush=True)
                     if a.once:
+                        if main_link is not None and row["undervolt"] == "":
+                            print("  (no PiStatus within 25s — undervolt not sampled)",
+                                  file=sys.stderr)
                         break
                     next_row = now + a.interval
                 # poll faster than the row interval so the sockets stay alive

@@ -175,8 +175,30 @@ Device-open (global): `open_camera` / `close_camera`, `open_focuser` /
 `get_disk_volume`, `get_image_save_path`, `get_img_name_field`,
 `get_stack_info/setting`, `get_sequence_setting`, `get_plan`, `get_focal_length`,
 `get_app_setting`, `get_setting`, `get_test_setting`, `get_svr_version`,
-`pi_get_info`, `pi_station_state`. Exposure: `set_exposure`, `start_exposure`,
+`pi_get_info`, `pi_station_state`, `get_power_supply`. Exposure: `set_exposure`, `start_exposure`,
 `stop_exposure`.
+
+### Power: `get_power_supply` (4700), not the mount's voltage
+
+```
+get_power_supply  ->  [[13.1414, 0.161719]]        # [[volts, amps]]
+```
+
+Prefer it over `scope_get_info.input_voltage` on 4400: that one needs the mount
+connected and answers `mount is not connected` otherwise — which is the state
+after every Air restart, and exactly when you are trying to establish whether
+the battery died rather than the Air crashing. `get_power_supply` answers with
+nothing attached at all.
+
+The two agree closely when both are available (13.14 V vs 13.07 V measured
+together), so the mount reading makes a decent cross-check. Trust the
+**voltage** and not the current: 13.2 V x 0.17 A is 2.2 W, far too low for the
+Air alone, so the amps figure looks like a single rail rather than system draw.
+
+`PiStatus` events carry `is_undervolt` / `is_over_current` / `temp` but **cannot
+be requested** — they are broadcast, and the cadence tracks how busy the Air is:
+2-4 s during an autorun, ~20 s idle. Budget 25 s before concluding none is
+coming. `telemetry.py` logs all of this to CSV.
 
 ## Operational traps (learned on sky, 2026-08-10/15)
 
