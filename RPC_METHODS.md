@@ -124,7 +124,7 @@ revision of this doc claimed the sensor only opens with the app's engine running
 | `get_exposure` / `set_exposure` | — / `[ms]` | Guide exposure, ms (reads real once connected) |
 | `get_gain` / `set_gain` / `get_gain_segment` | — / `[gain]` / — | Guide-camera gain (`{min,max,val}`) |
 | `loop` / `stop_capture` | — ✓ | Start / stop streaming (frames on TCP **4500**); `loop` → `303` if the sensor isn't connected |
-| `guide` | **bare** `{settle-obj}` | Start calibration + guiding |
+| `guide` | `[{settle-obj}, recalibrate]` ✓ | Start guiding. **Two** params — the trailing bool redoes calibration instead of reusing it |
 | `get_app_state` | — ✓ | `Idle`/`Looping`/`Selected`/`Calibrating`/`Guiding`/`Paused`/`LostLock`/`Stopped` |
 
 ### Algorithm / tuning (the "am I on defaults?" params)
@@ -134,7 +134,7 @@ revision of this doc claimed the sensor only opens with the app's engine running
 | `set_algo_param` | `[axis, key, value]` | e.g. `["dec","aggression",0.7]` (aggression 0–1) |
 | `get_dec_guide_mode` / `set_dec_guide_mode` | — / `[mode]` | `"Auto"`/`"North"`/`"South"`/`"Off"` |
 | `get_search_region` / `set_search_region` | — / `[px]` | Star search box, px |
-| `get_lock_position` / `set_lock_position` | — / `[x, y, lock]` | Guide lock position |
+| `get_lock_position` / `set_lock_position` | — / `[x, y, exact]` ✓ | Guide star. **Three** params — a two-param call is accepted and then silently reverted. Coords are `get_camera_info.full_size` space (binned), not sensor px |
 | `get_setting` / `set_setting` | — / `[obj]` | Guide settings blob (observed empty `{}` even when connected; likely populates only during guiding) |
 | `get_beta_setting` / `set_beta_setting` | — / **bare** `{obj}` | Holds `disable_meridian_limit`; setter takes a **bare** object (list-wrapped → `107`) |
 
@@ -265,13 +265,26 @@ degenerate and the solution **diverges** across successive reads (3.2° → 7.4�
 exposures at all is still unexplained; check the **site location** first (below),
 since at latitude 0 the routine's geometry is nonsense.
 
-### `guide` wants a PHD2 settle object
+### `guide` wants a PHD2 settle object — and a trailing bool
 
 ```
-guide  [{"pixels": 1.5, "time": 10, "timeout": 60}]
+guide  [{"pixels": 1.5, "time": 10, "timeout": 60}, false]
 ```
 The app's `DitherConfig` (`enable`/`ra_only`/`amount`/`settle_arcsec`/…) is a
 different bean and is rejected `102`.
+
+The second param is **recalibrate**. `false` reuses an existing calibration,
+which turns a ~7 minute start into ~10 seconds — worth having after any
+interruption that dropped guiding but left the calibration intact. The app sends
+a looser settle, `{"pixels": 3, "time": 5, "timeout": 60}`.
+
+**And you must select the star yourself.** Guide-star auto-selection does not
+work over this channel: `loop` alone leaves the state at `Looping` indefinitely
+— four attempts across two fields, including a Milky Way field with 300+ stars
+in the imaging frame. Only the app auto-selects. So `set_lock_position([x, y,
+false])` first, and mind that its coordinates are the guide service's binned
+space (`get_camera_info.full_size`, [960, 540] on the ASI220MM), not sensor
+pixels. `305 could not set lock position` means no star is there.
 
 ### Recovering from an Air restart, without the phone
 
