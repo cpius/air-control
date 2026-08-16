@@ -166,6 +166,55 @@ These are on **4700**. `start_polar_align` will not run until you call
 [Polar alignment needs `set_page`](#polar-alignment-needs-set_page) below for
 the working sequence, the result shape, and the near-pole failure mode.
 
+## Autorun — the only path that saves to eMMC and dithers (4700)
+
+`set_page` · `set_sequence` · `set_sequence_setting` · `start_exposure` ·
+`clear_sequence` · `reset_sequence_progress` · `get_target_sequences`
+
+Everything driven through the preview page is **transient**: `start_exposure`
+there exposes, the frame can be pulled off 4800, and the Air never writes it to
+storage. Dithering does not happen either. Both come from the Air's own sequence
+runner, and this is how to start it — captured from the app's traffic 2026-08-16:
+
+```
+set_page(["autosave"])
+clear_sequence()                              # only if a previous run has progress
+set_sequence([{ "id":1, "type":"light", "exp":180, "gain":-10000, "bin":1,
+                "repeat":100, "filter":0, "suffix":"", "enable":true,
+                "autoexp":false, "capture_index":1 }])
+set_sequence_setting([{ "group_name":"M 101", "mount_end_action":"none",
+                        "delay_first":0, "delay_between_frame":0,
+                        "delay_between_sequence":0, "group_by_slot":true,
+                        "focuser_go_home":false, "caa_go_home":false,
+                        "shutdown_pi":false }])
+start_exposure(["light"])
+```
+
+Four details, each of which silently breaks the whole thing on its own:
+
+- **It is `set_sequence`, not `set_plan`.** `set_plan` is the separate
+  multi-target planner and is a decoy: it accepts a plan object, reports
+  `is_plan_started: true`, and never exposes a frame.
+- **The page is `"autosave"`.** `set_page(["plan"])` is *also* accepted and even
+  flips `capture.exposure_mode` to `"autosave"`, which looks right but does not
+  arm the runner. `"autorun"` is rejected outright with `109`.
+- **`start_exposure` takes `["light"]` here.** Called bare it returns `0` and
+  does nothing at all.
+- **`gain: -10000`** is a sentinel meaning "use the camera's current gain".
+
+`mount_end_action: "none"` stops the mount parking itself when the run ends.
+
+Progress arrives as events: `Sequence` (`start` / `frame_start` /
+`frame_complete`, carrying `frame` and `total_frame`), `Dither`, and `Settle`
+(`dither_settling` → `complete`); on 4400, `GuidingDithered {dx,dy}` and
+`SettleDone {Status:0}`. The runner has **no quality gate** — it will happily
+shoot into cloud or a rooftop until `repeat` is exhausted.
+
+Editing a sequence that has already run some frames returns
+`224 cannot edit sequence unless reset the progress`; `clear_sequence` and
+`reset_sequence_progress` clear it, but both return `206 capture is active`
+while a run is in progress, so stop it first.
+
 ## Also confirmed live (firmware 43.97), for reference
 
 Device-open (global): `open_camera` / `close_camera`, `open_focuser` /
