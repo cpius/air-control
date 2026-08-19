@@ -383,6 +383,48 @@ across runs (`x_scale`, `y_scale` unchanged), and moves the focuser to a
 remembered position. Treat a bare `start_auto_focuse` as "replay the last
 result", not "measure focus".
 
+### The `preview` page silently drops exposures — focus on the `focus` page
+
+On `set_page(["preview"])` the Air **plate-solves and annotates every frame**:
+after each `Exposure complete` you get `PlateSolve start/solving/complete` and
+`Annotate start/complete`, about **6 s of Air-side work**. A `start_exposure`
+fired inside that window is **accepted (`result: 0`) and then silently
+dropped** — no error, no event. The next `get_current_img` therefore hands back
+the *previous* frame.
+
+The symptom is deeply misleading: a focus sweep fills with **identical
+consecutive HFD readings** at different focuser positions, or reports "no star"
+at the positions nearest focus. Nothing looks like a failure.
+
+`set_page(["focus"])` removes both problems — no annotate, and the camera
+**free-runs**. Measured 2026-08-19 on an ASI585MC Air:
+
+| page | per frame |
+|---|---|
+| `preview` (auto-solve + annotate) | ~2.2 s, exposures dropped |
+| `focus` (free-run) | **~0.35 s** |
+
+Two consequences for a client on the focus page:
+
+* **No `Exposure complete` event arrives** — do not wait for one.
+* The camera free-runs, so the frame on the Air right after a focuser move was
+  probably started *before* the move finished. **Discard one frame after every
+  move**, and two after changing exposure or gain.
+
+Restore `set_page(["preview"])` when done.
+
+### The 4800 header's `imageID` is a constant — check frames by content
+
+`parse_header` exposes `imageID`, and it is tempting to use it to tell a new
+frame from a stale one. It does not work: it is **stuck at one value** (141 on
+firmware 43.97) across every exposure. The `hfd` fields are likewise inert on
+the main channel (a constant `1000`); they only carry meaning on the guide
+stream.
+
+To know a download is actually new, **hash a subsample of the payload**. Two
+real exposures never collide — the read noise alone differs — so a repeated
+checksum means the Air served the same frame twice.
+
 ### `AutoGotoStep` failing with 252 on the first attempt is normal
 
 `{"Event":"AutoGotoStep","state":"fail","count":1,"error":"auto goto failed",
