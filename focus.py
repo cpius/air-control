@@ -42,6 +42,19 @@ reported but not used to drive the sweep: the focus page's sampling collapses a
 focused star to a couple of pixels, so every width metric tried went flat or
 non-monotonic exactly at the bottom of the V (see `measure`).
 
+Normalising peak by aperture flux -- to cancel transparency, and with it the
+1.8x swings cloud produces between sweeps -- was implemented and then REMOVED:
+measured, it was 13x less reproducible than bare peak, and aperture flux can
+come out NEGATIVE when the background ring reads above the aperture interior.
+Both failures trace to the same thing, and `measure` spells it out. Real
+transparency compensation needs a comparison star, not self-normalisation.
+
+The sweep holds an IDENTITY LOCK on the star: `relocate` takes the brightest
+pixel in a window and will silently hand back a neighbour, a hot pixel or a
+cosmic ray, producing a plausible curve with a meaningless minimum. Successive
+points are seconds apart, so a jump beyond ~30 px is a different object and the
+frame is dropped with a log line rather than quietly averaged in.
+
 LIMITATIONS. Single-frame scatter is real — repeat readings of the same star
 vary by ~10-20%, so the curve is noisy and the vertex can wander by tens of
 steps. In practice the bottom of the V is a ~200-step plateau, and positions
@@ -289,32 +302,37 @@ def relocate(v, w, h, cx, cy, search=70, box=48):
     return best[1], best[2]
 
 
-def measure(v, w, h, cx, cy, box=48):
-    """Focus quality at (cx,cy). Returns (score, peak, width) or "saturated"
-    or None. LOWER score is better focus.
+def measure(v, w, h, cx, cy, box=64, ap=48):
+    """Focus quality at (cx,cy). LOWER score is better focus.
 
-    The score is the negated background-subtracted PEAK. Total flux is
-    conserved as focus changes, so concentrating it raises the peak; the peak
-    is maximal exactly at focus.
+    Returns (score, peak, width, flux), or "saturated", or None.
+    `score` is the negated background-subtracted PEAK; `flux` is returned only
+    for the identity check in `sweep`.
 
-    Peak is used in preference to any star-width measure because the Air's
-    focus page serves a **downscaled 1472x831 frame** (2.6x from native), which
-    undersamples a focused star to roughly ONE pixel. Widths therefore collapse
-    at the bottom of the V — precisely where the measurement has to be sharpest.
-    Four width metrics were tried and all failed there:
+    Peak wins on measurement, not on theory. Total flux is conserved as focus
+    changes, so concentrating it raises the peak.
 
-      * half-flux over the aperture: summing `pixel - background` over ~9200
-        pixels makes a 1 ADU background error worth 9200 ADU -> 0.9 px widths
-        and an INVERTED V-curve;
-      * area above half-maximum: counts whole pixels, so a focused star
-        quantises into 4,5,6 px -> 2.26, 2.52, 2.76 and the sweep flattens;
-      * thresholded second moment: r^2 weighting lets a dozen noise pixels in
-        the box corners dominate, pinning every reading at the box limit;
-      * flood fill from the peak: only ONE pixel clears a 10% isophote on a
-        focused star, so it returns nothing exactly at focus.
+    NORMALISING BY FLUX (peak/flux) WAS TRIED AND IS WORSE -- measured, twice.
+    The theory is appealing: cloud dims peak and flux together, so the ratio
+    should cancel transparency and kill the 1.8x swings seen between sweeps. In
+    practice it was 13x LESS reproducible (101.9% run-to-run deviation against
+    7.6% for bare peak) and the two passes disagreed on the best position while
+    peak agreed with itself. The flaw is that a BACKGROUND-ESTIMATE error is not
+    random noise that averages away: it is a systematic offset multiplied by the
+    aperture area, so a 2 ADU error moves a 7200-pixel aperture sum by ~14000
+    against a star flux of ~120000. Shrinking the aperture (r=12, 24, 48) does
+    not rescue it -- all three were worse than peak and disagreed on the answer.
+    If transparency compensation is wanted, it needs a COMPARISON STAR in the
+    same frame, not a self-normalisation.
 
-    `width` is still reported when the star is broad enough to measure, but it
-    is informational — the sweep is driven by the peak.
+    Peak is also used in preference to any star WIDTH, because the Air's focus
+    page serves a 1472x831 crop that samples a focused star across ~2 px, so
+    every width metric tried went flat or non-monotonic at the bottom of the V:
+      * half-flux over the aperture -> inverted V-curve (background-error bound);
+      * area above half-maximum     -> quantises into 4,5,6 px;
+      * thresholded second moment   -> corner noise dominates via r^2;
+      * flood fill from the peak    -> one pixel clears the isophote at focus.
+    `width` is still returned, for reporting only.
     """
     x0, x1 = max(0, cx - box), min(w, cx + box)
     y0, y1 = max(0, cy - box), min(h, cy + box)
@@ -326,38 +344,46 @@ def measure(v, w, h, cx, cy, box=48):
     bg = _median(ring)
     noise = _mad_sigma(ring, bg)
 
-    peak = 0
+    ap2 = ap * ap
+    peak = 0; flux = 0.0
     for y in range(y0, y1):
-        row = y * w
+        row = y * w; dy2 = (y - cy) ** 2
+        if dy2 > ap2:
+            continue
         for x in range(x0, x1):
-            if v[row + x] > peak: peak = v[row + x]
+            if (x - cx) ** 2 + dy2 > ap2:
+                continue
+            p = v[row + x]
+            if p > peak: peak = p
+            flux += p - bg
     above = peak - bg
     if above < 8.0 * noise:
         return None                       # nothing significantly above the noise
     if peak >= SAT:
         return "saturated"
 
-    # informational width: pixels above half maximum, as an equivalent diameter
     half = bg + above / 2.0
     n = 0
     for y in range(y0, y1):
-        row = y * w
+        row = y * w; dy2 = (y - cy) ** 2
+        if dy2 > ap2:
+            continue
         for x in range(x0, x1):
-            if v[row + x] >= half: n += 1
+            if (x - cx) ** 2 + dy2 <= ap2 and v[row + x] >= half:
+                n += 1
     width = 2.0 * math.sqrt(n / math.pi) if n else float("nan")
-    return -float(above), peak, width
+    return -float(above), peak, width, flux
 
 
 def pick_exposure(frames, gain, start=0.5, star=None, log=print):
     """Find an exposure/gain where the star is detectable but NOT saturated.
 
-    Returns (exp, gain, x, y, fwhm) or (None,)*5.
+    Returns (exp, gain, x, y, width, flux) or (None,)*6. The flux becomes the
+    reference for the identity lock in `sweep`.
 
     Both knobs are needed. Exposure alone is not enough at either end: a very
     bright star (Vega) still saturates at the 2 ms floor, and dropping gain is
-    the only way down -- an earlier version just divided the exposure forever
-    and then reported "no usable star found", which is exactly backwards for a
-    star that is far too bright.
+    the only way down.
     """
     exp = start
     lo_exp = 0.002
@@ -370,7 +396,7 @@ def pick_exposure(frames, gain, start=0.5, star=None, log=print):
             if found is None:
                 if exp >= 8:
                     log("  no star detected even at 8 s")
-                    return (None,) * 5
+                    return (None,) * 6
                 exp = min(8.0, exp * 3.0); continue
             cx, cy = found[0], found[1]
         r = measure(v, w, h, cx, cy)
@@ -383,15 +409,15 @@ def pick_exposure(frames, gain, start=0.5, star=None, log=print):
             else:
                 log("  star saturates at %.3fs / gain 0 — pick a fainter one "
                     "with --star X,Y" % exp)
-                return (None,) * 5
+                return (None,) * 6
             continue
         if r is None:
             if exp >= 8:
                 log("  star found but not measurable at 8 s")
-                return (None,) * 5
+                return (None,) * 6
             exp = min(8.0, exp * 3.0); continue
-        return exp, gain, cx, cy, r[2]
-    return (None,) * 5
+        return exp, gain, cx, cy, r[2], r[3]
+    return (None,) * 6
 
 
 def crop_png(v, w, h, cx, cy, path, half=60, label=None):
@@ -415,21 +441,51 @@ def crop_png(v, w, h, cx, cy, path, half=60, label=None):
 
 
 def sweep(frames, foc, centre, span, step, exp, gain, cx, cy,
-          log=print, shots=None, tag=""):
+          log=print, shots=None, tag="", max_jump=30):
+    """Sweep the focuser and score each position. Returns [(pos, score, peak)].
+
+    Carries an IDENTITY LOCK on the star, because `relocate` simply takes the
+    brightest pixel in a search window and will happily hand back a *different*
+    source — a neighbour, a hot pixel, a cosmic ray — without any complaint. A
+    sweep that silently changes star mid-way produces a plausible-looking curve
+    with a meaningless minimum. Two cheap invariants catch it:
+
+    POSITION CONTINUITY is the check. Successive points are seconds apart, so
+    the star cannot really move far; a jump beyond `max_jump` px is a different
+    object, not tracking.
+
+    A flux-continuity check was written alongside it and REMOVED, because
+    aperture flux is not a trustworthy identity: the background ring can read
+    above the aperture interior, which makes the summed flux come out NEGATIVE.
+    The tolerance interval then inverts and rejects every frame, including
+    perfectly good ones — it did exactly that in testing. The same unreliability
+    is why normalising peak by flux fails (see `measure`). Do not reintroduce a
+    flux-based test without first checking the sign.
+
+    Rejected frames are logged and skipped rather than silently averaged in.
+    """
     out = []
+    last = (cx, cy)
     for p in range(centre - span, centre + span + 1, step):
         ap = foc.move(p)
         v, w, h = frames.grab(exp, gain)
-        cx2, cy2 = relocate(v, w, h, cx, cy)      # star drifts; re-find it
-        r = measure(v, w, h, cx2, cy2)
+        nx, ny = relocate(v, w, h, last[0], last[1])
+        jump = math.hypot(nx - last[0], ny - last[1])
+        if jump > max_jump:
+            log("  %7d   (tracked source jumped %.0f px — skipped)" % (ap, jump))
+            continue
+        r = measure(v, w, h, nx, ny)
         if r == "saturated":
             log("  %7d   (saturated)" % ap); continue
         if r is None:
             log("  %7d   (no usable star)" % ap); continue
-        out.append((ap, r[0], r[1]))
-        log("  %7d   peak %7d   width %5.2f px" % (ap, r[1], r[2]))
+        score, peak, width, flux = r
+        last = (nx, ny)
+        out.append((ap, score, peak))
+        log("  %7d   peak %7d   width %5.2f px" % (ap, peak, width))
         if shots is not None:
-            shots.append((v, w, h, cx2, cy2, "%s%d pk%d w%.1f" % (tag, ap, r[1], r[2])))
+            shots.append((v, w, h, nx, ny,
+                          "%s%d pk%d w%.1f" % (tag, ap, peak, width)))
     return out
 
 
@@ -471,7 +527,7 @@ def main():
           f"({foc.temperature()}C)")
 
     hint = tuple(int(t) for t in a.star.split(",")) if a.star else None
-    exp, gain, cx, cy, h0 = pick_exposure(frames, a.gain, star=hint)
+    exp, gain, cx, cy, h0, _flux = pick_exposure(frames, a.gain, star=hint)
     if exp is None:
         print("no usable star found — sky clear? scope uncovered? try --star X,Y",
               file=sys.stderr)
