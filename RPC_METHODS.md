@@ -89,6 +89,16 @@ plate-solve-and-center, orchestrated from 4700 using the mount underneath.
 
 `start_solve` · `stop_solve` · `get_solve_result` · `get_last_solve_result` · `set_solved`
 
+**`start_solve` does not expose.** It re-solves whatever frame is already in the
+Air's buffer, so a loop that slews and then calls `start_solve` keeps solving
+the *previous* field and reports the old coordinates as if they were new. The
+tell is the timing and the `image_id`: a stale solve returns in well under a
+second on an unchanged `image_id`, a real one takes exposure + ~3-8 s. Fire an
+explicit `start_exposure` and wait for `Event: Exposure, state: complete`
+first — verified 2026-08-20 (stale `image_id: 23` at Dec 22.7 while the mount
+sat at Dec 80; a fresh exposure gave `image_id: 24` at Dec 78.7).
+`start_auto_goto` (§*Goto*) is unaffected — it exposes on its own.
+
 ## Guiding (4400 — unprefixed guide methods)
 
 Guiding shares the 4400 channel with the mount but the guide methods are

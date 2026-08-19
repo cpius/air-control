@@ -46,6 +46,10 @@ def main():
                     help="Air IP address (or set the ASIAIR_HOST env var)")
     ap.add_argument("--min-alt", type=float, default=10.0, help="refuse below this altitude")
     ap.add_argument("--seconds", type=int, default=180, help="max time to watch events")
+    ap.add_argument("--solve-timeout", type=float, default=20.0,
+                    help="abort if a single plate solve runs longer than this (0 = no cap)")
+    ap.add_argument("--max-step-fails", type=int, default=2,
+                    help="give up after this many failed auto-goto steps")
     ap.add_argument("--force", action="store_true", help="skip the horizon check")
     a = ap.parse_args()
 
@@ -78,14 +82,17 @@ def main():
         print("no cameras reported by the Air", file=sys.stderr)
         return 1
     air.call("open_camera", [main["name"]], timeout=25)
-    print(f"main camera: {main['name']}")
+    print(f"main camera: {main['name']}", flush=True)
 
     params = [a.ra, a.dec, a.angle]   # matches startAutoGoto(ra, dec, angle)
-    print("start_auto_goto ->", air.call("start_auto_goto", params, timeout=15).get("result"))
+    print("start_auto_goto ->",
+          air.call("start_auto_goto", params, timeout=15).get("result"), flush=True)
 
     print(f"\nwatching events up to {a.seconds}s (Ctrl-C to stop watching; the "
           f"routine keeps running on the Air):")
     end = time.time() + a.seconds
+    solve_started = None      # when the in-flight PlateSolve began
+    step_fails = 0
     try:
         while time.time() < end:
             for e in air.drain_events():
@@ -93,16 +100,48 @@ def main():
                 if ev in ("Version", "Station", "PiStatus"):
                     continue
                 print(time.strftime("%H:%M:%S"), ev, {k: v for k, v in e.items()
-                      if k not in ("Event", "Timestamp")})
+                      if k not in ("Event", "Timestamp")}, flush=True)
+
+                # A solve that never returns is the usual way this hangs: the
+                # Air keeps the routine "working" forever and nothing here is
+                # terminal. Bound each solve individually.
+                if ev == "PlateSolve":
+                    st = e.get("state")
+                    if st == "start":
+                        solve_started = time.time()
+                    elif st in ("complete", "fail"):
+                        solve_started = None
+
+                # The real failure signal is AutoGotoStep, NOT AutoGoto: the
+                # step reports {'state': 'fail', 'code': 252} while the parent
+                # AutoGoto stays 'working' indefinitely.
+                if ev == "AutoGotoStep" and e.get("state") == "fail":
+                    step_fails += 1
+                    print(f"-> auto-goto step failed "
+                          f"(code {e.get('code')}, {step_fails}/{a.max_step_fails})",
+                          flush=True)
+                    if step_fails >= a.max_step_fails:
+                        print("-> giving up on auto-goto", flush=True)
+                        air.call("stop_auto_goto", [], timeout=10)
+                        return 3
+
                 if ev in ("AutoGoto", "GotoComplete") and e.get("state") in ("complete", "fail"):
-                    print(f"\n-> auto-goto {e.get('state')}")
+                    print(f"\n-> auto-goto {e.get('state')}", flush=True)
                     return 0
+
+            if (a.solve_timeout and solve_started
+                    and time.time() - solve_started > a.solve_timeout):
+                print(f"\n-> plate solve exceeded {a.solve_timeout:.0f}s — aborting",
+                      file=sys.stderr, flush=True)
+                air.call("stop_auto_goto", [], timeout=10)
+                return 4
             time.sleep(0.3)
     except KeyboardInterrupt:
         pass
     finally:
         air.close()
-    print("(stopped watching)")
+    print("(stopped watching — hit --seconds without a terminal event)")
+    return 5
 
 
 if __name__ == "__main__":
