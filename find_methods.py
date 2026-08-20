@@ -14,9 +14,16 @@ moves the mount, exposes, or writes settings.
 
 import argparse
 import json
+import os
+import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from air_rpc import Air
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("probe")
 
 # Device nouns the firmware might expose, and read-only attributes to pair.
 DEVICES = [
@@ -121,7 +128,9 @@ def main():
     ap.add_argument("--curated-only", action="store_true",
                     help="skip the get_<device>_<attr> combos, test only the "
                          "curated + special lists")
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
 
     words = build_wordlist(curated_only=a.curated_only)
     air = Air(a.host, 4700, key=a.key)
@@ -131,10 +140,17 @@ def main():
     print(f"authenticated. probing {len(words)} read-only candidate names\n")
 
     slots = []
-    for m in words:
-        slots.append((m, air.send(m, [])))
-        time.sleep(0.015)
-    time.sleep(a.wait)
+    with log.slow("firing %d probes" % len(words), quiet_for=1.0,
+                  detail=lambda: "%d/%d sent" % (len(slots), len(words))):
+        for m in words:
+            slots.append((m, air.send(m, [])))
+            time.sleep(0.015)
+    # A fixed collection window — report how it fills rather than going quiet.
+    with log.slow("collecting replies (%.0fs window)" % a.wait, quiet_for=0.0,
+                  detail=lambda: "%d/%d answered"
+                                 % (sum(1 for _, (_, sl) in slots if sl[0].is_set()),
+                                    len(slots))):
+        time.sleep(a.wait)
 
     exists, missing, silent = [], [], []
     for m, (rid, slot) in slots:
@@ -152,6 +168,8 @@ def main():
         print(f"  {m:<28} {d}")
     if silent:
         print(f"\n{len(silent)} silent (no reply): {', '.join(sorted(silent))}")
+    log.info("%d exist, %d silent, %d not found (code 103)",
+             len(exists), len(silent), len(missing))
     print(f"\n{len(missing)} not found (code 103), hidden.")
     air.close()
 

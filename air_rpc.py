@@ -35,7 +35,19 @@ import sys
 import threading
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("rpc")
+
 PORT = 4700
+
+# Anything past this is "slow" and gets a line a second while it runs. Every
+# call here crosses the network to a Raspberry Pi that is also running a camera,
+# so multi-second replies are routine and a silent wait is indistinguishable
+# from a dead socket -- which is precisely the failure this logging exists for.
+SLOW_CALL_S = 1.0
 
 # Method names lifted from seestar_alp — Seestar and ASIAIR share ZWO's RPC
 # framework, so this is a high-quality wordlist rather than guesswork. The
@@ -88,16 +100,23 @@ def sign_challenge(key_path, challenge):
     """
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
-    with open(key_path, "rb") as f:
-        key = serialization.load_pem_private_key(f.read(), password=None)
-    sig = key.sign(challenge.encode(), padding.PKCS1v15(), hashes.SHA1())
+    with log.slow("sign challenge (RSA/SHA-1)", quiet_for=0.5):
+        with open(key_path, "rb") as f:
+            key = serialization.load_pem_private_key(f.read(), password=None)
+        log.debug("loaded %d-bit key from %s", key.key_size, key_path)
+        sig = key.sign(challenge.encode(), padding.PKCS1v15(), hashes.SHA1())
     return base64.b64encode(sig).decode()
 
 
 class Air:
     def __init__(self, host, port=PORT, timeout=10, key=None):
-        self.sock = socket.create_connection((host, port), timeout=timeout)
+        self.host, self.port = host, port
+        # A TCP connect to an Air that has lost power does not refuse, it hangs
+        # until the timeout -- so tick through it rather than going quiet.
+        with log.slow("connect %s:%d" % (host, port), quiet_for=1.0):
+            self.sock = socket.create_connection((host, port), timeout=timeout)
         self.sock.settimeout(None)
+        log.debug("connected to %s:%d (timeout %ss)", host, port, timeout)
         self._id = 0
         self._buf = b""
         self._replies = {}
@@ -105,6 +124,11 @@ class Air:
         self._lock = threading.Lock()
         self._alive = True
         self.verified = False
+        # Counters live before the reader starts: it logs them on socket close,
+        # and a connection that dies instantly would otherwise race the setup.
+        self._n_calls = 0
+        self._n_events = 0
+        self._closing = False
         self._rx = threading.Thread(target=self._reader, daemon=True)
         self._rx.start()
         if key:
@@ -126,24 +150,36 @@ class Air:
         Returns True when pi_is_verified confirms. Raises on a missing/rejected
         challenge. Verification is per-connection — it lives on this socket.
         """
-        vs = self.call("get_verify_str", [], timeout=timeout)
-        challenge = (vs.get("result") or {}).get("str") if isinstance(vs, dict) else None
-        if not challenge:
-            raise RuntimeError(f"no challenge from get_verify_str: {vs}")
-        signature = sign_challenge(key_path, challenge)
-        # verify_client takes two positional strings: [signature, challenge].
-        self.call("verify_client", [signature, challenge], timeout=timeout)
-        pv = self.call("pi_is_verified", [], timeout=timeout)
-        self.verified = bool(isinstance(pv, dict) and pv.get("result"))
+        with log.slow("RSA handshake on %d" % self.port) as tk:
+            tk.set("get_verify_str")
+            vs = self.call("get_verify_str", [], timeout=timeout)
+            challenge = (vs.get("result") or {}).get("str") if isinstance(vs, dict) else None
+            if not challenge:
+                raise RuntimeError(f"no challenge from get_verify_str: {vs}")
+            log.debug("challenge: %s", challenge)
+            tk.set("signing")
+            signature = sign_challenge(key_path, challenge)
+            # verify_client takes two positional strings: [signature, challenge].
+            tk.set("verify_client")
+            self.call("verify_client", [signature, challenge], timeout=timeout)
+            tk.set("pi_is_verified")
+            pv = self.call("pi_is_verified", [], timeout=timeout)
+            self.verified = bool(isinstance(pv, dict) and pv.get("result"))
+        if self.verified:
+            log.info("4700 handshake OK — gated methods unlocked")
+        else:
+            log.warn("handshake completed but pi_is_verified says False: %r", pv)
         return self.verified
 
     def _reader(self):
         while self._alive:
             try:
                 chunk = self.sock.recv(65536)
-            except OSError:
+            except OSError as e:
+                log.debug("reader on %d: socket error %s", self.port, e)
                 break
             if not chunk:
+                log.debug("reader on %d: peer closed the connection", self.port)
                 break
             self._buf += chunk
             while b"\n" in self._buf:
@@ -163,8 +199,24 @@ class Air:
                             ev[1] = msg
                             ev[0].set()
                             continue
+                self._n_events += 1
+                # Events are the Air's only progress channel for slews, solves
+                # and exposures, so every one is logged at debug.
+                if isinstance(msg, dict):
+                    log.debug("event %-14s %s", msg.get("Event", "?"),
+                              json.dumps({k: v for k, v in msg.items()
+                                          if k not in ("Event", "Timestamp")},
+                                         ensure_ascii=False)[:200])
                 self._events.put(msg)
         self._alive = False
+        # A close WE asked for is unremarkable; one the Air did is a finding --
+        # it is how an idle-timeout drop or a power loss shows up.
+        if self._closing:
+            log.debug("reader on %d finished (%d calls, %d events)",
+                      self.port, self._n_calls, self._n_events)
+        else:
+            log.info("the Air closed %s:%d (%d calls, %d events)",
+                     self.host, self.port, self._n_calls, self._n_events)
 
     def send(self, method, params=None):
         """Fire a request without waiting. Returns (rid, slot) for later collection."""
@@ -176,18 +228,41 @@ class Air:
         req = {"id": rid, "method": method}
         if params is not None:
             req["params"] = params
+        log.trace("-> #%d %s %s", rid, method,
+                  json.dumps(params, ensure_ascii=False)[:160] if params else "")
         self.sock.sendall((json.dumps(req) + "\r\n").encode())
         return rid, slot
 
     def call(self, method, params=None, timeout=15):
+        """Send and block for the reply, ticking once a second while it waits.
+
+        The tick is the whole point: a reply that never comes and a reply that
+        takes 12 s look identical from here, and several methods (open_camera,
+        start_solve, set_connected) routinely take many seconds. The ticker
+        thread keeps reporting even though this thread is parked in Event.wait.
+        """
+        t0 = time.time()
+        self._n_calls += 1
         rid, slot = self.send(method, params)
-        if not slot[0].wait(timeout):
-            with self._lock:
-                self._replies.pop(rid, None)
-            raise TimeoutError(f"no reply to {method!r} within {timeout}s")
+        with log.slow("%s on %d" % (method, self.port), quiet_for=SLOW_CALL_S,
+                      detail=lambda: "waiting for reply #%d (timeout %.0fs)"
+                                     % (rid, timeout)):
+            got = slot[0].wait(timeout)
         with self._lock:
             self._replies.pop(rid, None)
-        return slot[1]
+        dt = time.time() - t0
+        if not got:
+            log.warn("no reply to %r on %d within %ss", method, self.port, timeout)
+            raise TimeoutError(f"no reply to {method!r} within {timeout}s")
+        rep = slot[1]
+        if isinstance(rep, dict) and rep.get("error"):
+            log.debug("<- #%d %s FAILED in %.2fs: %s (code %s)", rid, method, dt,
+                      rep.get("error"), rep.get("code"))
+        else:
+            log.trace("<- #%d %s in %.2fs: %s", rid, method, dt,
+                      json.dumps(rep.get("result") if isinstance(rep, dict) else rep,
+                                 ensure_ascii=False)[:200])
+        return rep
 
     def drain_events(self):
         out = []
@@ -198,11 +273,23 @@ class Air:
                 return out
 
     def close(self):
+        if self._alive:
+            log.debug("closing %s:%d after %d call(s)", self.host, self.port,
+                      self._n_calls)
+        self._closing = True
         self._alive = False
         try:
             self.sock.close()
         except OSError:
             pass
+        # Join the reader before returning. It writes its own closing line, and
+        # a daemon thread that reaches the logger *during interpreter shutdown*
+        # takes the whole process down with a fatal "runtime state: finalizing"
+        # error -- which is exactly what happens when close() is the last thing
+        # a script does. Joining costs nothing and removes the race.
+        rx = getattr(self, "_rx", None)
+        if rx is not None and rx is not threading.current_thread():
+            rx.join(timeout=1.0)
 
 
 def show(msg):
@@ -214,11 +301,18 @@ def cmd_probe(air, wait=10.0):
     print(f"probing {len(PROBE_METHODS)} read-only methods "
           f"(pipelined, {wait:.0f}s collection window)\n")
     slots = []
-    for m in PROBE_METHODS:
-        slots.append((m, air.send(m, [])))
-        time.sleep(0.02)
+    with log.slow("firing %d probes" % len(PROBE_METHODS),
+                  detail=lambda: "%d/%d sent" % (len(slots), len(PROBE_METHODS))):
+        for m in PROBE_METHODS:
+            slots.append((m, air.send(m, [])))
+            time.sleep(0.02)
 
-    time.sleep(wait)
+    # A fixed collection window: report how many have answered as it drains.
+    with log.slow("collecting replies (%.0fs window)" % wait, quiet_for=0.0,
+                  detail=lambda: "%d/%d answered"
+                                 % (sum(1 for _, (_, sl) in slots if sl[0].is_set()),
+                                    len(slots))):
+        time.sleep(wait)
 
     live, silent = [], []
     for m, (rid, slot) in slots:
@@ -248,13 +342,24 @@ def cmd_probe(air, wait=10.0):
 def cmd_listen(air, seconds):
     print(f"listening for events for {seconds}s (Ctrl-C to stop)\n")
     end = time.time() + seconds
+    n = 0
+    last = [time.time()]
     try:
-        while time.time() < end:
-            for e in air.drain_events():
-                print(time.strftime("%H:%M:%S"), json.dumps(e, ensure_ascii=False))
-            time.sleep(0.2)
+        # A quiet event channel is a real observation (nothing is running, or
+        # the socket died) so the ticker reports the silence, once a second.
+        with log.slow("listening", quiet_for=1.0,
+                      detail=lambda: "%d event(s), %.0fs since the last one%s"
+                                     % (n, time.time() - last[0],
+                                        "" if air.alive else "  SOCKET CLOSED")):
+            while time.time() < end:
+                for e in air.drain_events():
+                    n += 1
+                    last[0] = time.time()
+                    print(time.strftime("%H:%M:%S"), json.dumps(e, ensure_ascii=False))
+                time.sleep(0.2)
     except KeyboardInterrupt:
         pass
+    log.info("listened %.0fs, saw %d event(s)", seconds, n)
 
 
 def cmd_console(air):
@@ -302,7 +407,10 @@ def main():
     c = sub.add_parser("call")
     c.add_argument("method"); c.add_argument("params", nargs="?", default="[]")
 
+    add_log_args(ap)          # after the subparsers, so `call foo -v` works too
     a = ap.parse_args()
+    configure_logging(a)
+    log.info("air_rpc %s -> %s:%d", a.cmd, a.host, a.port)
     try:
         air = Air(a.host, a.port)
     except OSError as e:

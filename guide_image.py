@@ -54,8 +54,13 @@ import threading
 import time
 import zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from air_rpc import Air
+from airlog import add_log_args, configure_logging, get_logger
 from main_image import HDR, build_cmd, parse_header
+
+log = get_logger("guidecam")
 
 PORT = 4500
 MOUNT_PORT = 4400
@@ -63,8 +68,13 @@ MOUNT_PORT = 4400
 
 class GuideImage:
     def __init__(self, host, port=PORT, timeout=60, heartbeat=False):
-        self.s = socket.create_connection((host, port), timeout=15)
+        self.host, self.port = host, port
+        self.frames_seen = 0
+        with log.slow("connect %s:%d" % (host, port), quiet_for=1.0):
+            self.s = socket.create_connection((host, port), timeout=15)
         self.s.settimeout(timeout)
+        log.debug("4500 connected (read timeout %ss, heartbeat=%s)",
+                  timeout, heartbeat)
         self._stop = threading.Event()
         self._lock = threading.Lock()
         # 4800 resets a client that stays silent for ~4s; 4500 does not — a
@@ -83,19 +93,31 @@ class GuideImage:
             except Exception:
                 return
 
-    def _recv_exact(self, n):
+    def _recv_exact(self, n, what="bytes"):
         buf = bytearray()
-        while len(buf) < n:
-            chunk = self.s.recv(min(65536, n - len(buf)))
-            if not chunk:
-                raise ConnectionError("socket closed mid-frame")
-            buf += chunk
+        t0 = time.time()
+        with log.slow("waiting for %d %s" % (n, what), quiet_for=1.0,
+                      detail=lambda: "%d/%d received — is the guide camera "
+                                     "looping?" % (len(buf), n)):
+            while len(buf) < n:
+                chunk = self.s.recv(min(65536, n - len(buf)))
+                if not chunk:
+                    log.error("4500 closed with %d of %d bytes read", len(buf), n)
+                    raise ConnectionError("socket closed mid-frame")
+                buf += chunk
+        log.trace("read %d %s in %.2fs", n, what, time.time() - t0)
         return bytes(buf)
 
     def read_frame(self):
-        """Return (header, payload). Blocks until a frame arrives."""
-        hdr = parse_header(self._recv_exact(HDR))
-        payload = self._recv_exact(hdr["length"]) if hdr["length"] > 0 else b""
+        """Return (header, payload). Blocks until a frame arrives.
+
+        The header read is the one that can block for a long time: with no
+        `begin_streaming`, or with the guide camera not looping, nothing ever
+        arrives and the socket simply stays quiet. Hence the per-second tick.
+        """
+        hdr = parse_header(self._recv_exact(HDR, "header bytes"))
+        payload = (self._recv_exact(hdr["length"], "payload bytes")
+                   if hdr["length"] > 0 else b"")
         return hdr, payload
 
     def begin_streaming(self):
@@ -103,6 +125,7 @@ class GuideImage:
         waiting yields silence forever, even with the guide camera looping.
         `get_current_img` / `get_star_image` are answered `unknown mothod`
         (the firmware's own spelling), so this socket is stream-only."""
+        log.info("begin_streaming on 4500 — nothing arrives without this")
         with self._lock:
             self.s.sendall(build_cmd(2, "begin_streaming"))
 
@@ -120,7 +143,9 @@ class GuideImage:
         while True:
             hdr, payload = self.read_frame()
             if hdr["id"] == 1 or (hdr["width"] == 0 and hdr["length"] < 64):
+                log.trace("4500 status/heartbeat frame, skipped")
                 continue                      # "server connected!" / "done"
+            self.frames_seen += 1
             files = {}
             if payload[:2] == b"PK":
                 with zipfile.ZipFile(io.BytesIO(payload)) as z:
@@ -131,6 +156,7 @@ class GuideImage:
             yield hdr, files
 
     def close(self):
+        log.debug("closing 4500 after %d frame(s)", self.frames_seen)
         self.stop_streaming()
         self._stop.set()
         try:
@@ -147,22 +173,33 @@ def start_looping(host):
         def call(m, p=None):
             r = a.call(m, p or [], timeout=12)
             return r.get("result"), r.get("error")
-        state, _ = call("get_app_state")
-        if state in ("Looping", "Selected", "Guiding"):
-            return state
-        conn, _ = call("get_connected")
-        if not (isinstance(conn, dict) and "camera" in conn):
-            # set_camera_idx FIRST — without it set_connected appears to succeed
-            # but leaves the sensor unattached, and `loop` then fails with
-            # 303 "could not start looping".
-            call("set_camera_idx", [0])
-            time.sleep(1)
-            call("set_connected", [{"camera": True}])
-            time.sleep(2)
-        res, err = call("loop")
-        if err:
-            raise RuntimeError(f"loop: {err} — is the guide sensor attached?")
-        return call("get_app_state")[0]
+        # Attaching the guide sensor is ~3 s of mandatory sleeps, so it is one
+        # of the operations that must narrate itself.
+        with log.slow("bringing the guide camera up on 4400") as tk:
+            state, _ = call("get_app_state")
+            log.info("guide state is %s", state)
+            if state in ("Looping", "Selected", "Guiding"):
+                return state
+            conn, _ = call("get_connected")
+            if not (isinstance(conn, dict) and "camera" in conn):
+                # set_camera_idx FIRST — without it set_connected appears to
+                # succeed but leaves the sensor unattached, and `loop` then
+                # fails with 303 "could not start looping".
+                tk.set("set_camera_idx(0)")
+                call("set_camera_idx", [0])
+                time.sleep(1)
+                tk.set("set_connected camera=True")
+                call("set_connected", [{"camera": True}])
+                tk.set("waiting 2s for the sensor to attach")
+                time.sleep(2)
+            tk.set("loop")
+            res, err = call("loop")
+            if err:
+                log.error("loop failed: %s", err)
+                raise RuntimeError(f"loop: {err} — is the guide sensor attached?")
+        state = call("get_app_state")[0]
+        log.info("guide camera looping, state=%s", state)
+        return state
     finally:
         a.close()
 
@@ -181,7 +218,9 @@ def main():
                     help="stop after N frames (0 = run until interrupted)")
     ap.add_argument("--heartbeat", action="store_true",
                     help="send a 4s keepalive (4500 does not need one; 4800 does)")
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
 
     if a.loop:
         print("guide state ->", start_looping(a.host))
@@ -198,6 +237,9 @@ def main():
                   f"{hdr['width']}x{hdr['height']}  dataType={hdr['dataType']}  "
                   f"hfd={hdr['hfd']} ({hdr['hfdX']},{hdr['hfdY']})  "
                   f"{hdr['length']} bytes", flush=True)
+            log.debug("frame %d: %dx%d hfd=%d (%d,%d) %d bytes", n, hdr["width"],
+                      hdr["height"], hdr["hfd"], hdr["hfdX"], hdr["hfdY"],
+                      hdr["length"])
             if n <= a.save:
                 for name, data in files.items():
                     leaf = "raw" if name == "<raw>" else (os.path.basename(name) or "payload.bin")

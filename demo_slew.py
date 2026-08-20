@@ -10,10 +10,17 @@ slew on any error. Refuses if the computed move would exceed 10 deg.
 import os
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from airlog import get_logger
 from mount import Mount
+
+log = get_logger("demo")
 
 STEP_DEG = 5.0
 SETTLE_TIMEOUT = 60
+POLL_S = 1.0            # one status line a second while the mount is moving
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("ASIAIR_HOST")
 if not HOST:
@@ -27,13 +34,20 @@ def snap():
 
 
 def wait_settled(target_dec, label):
+    """Poll once a second until the mount is idle on target. A 5 deg slew is
+    tens of seconds of real motion, so silence here would be the bulk of the
+    run."""
     t0 = time.time()
     while time.time() - t0 < SETTLE_TIMEOUT:
         ra, dec, alt, az, mv, trk = snap()
+        log.info("[%s] %5.1fs  RA=%.4fh Dec=%.3f Alt=%.2f move=%s (%.3f to go)",
+                 label, time.time() - t0, ra, dec, alt, mv, dec - target_dec)
         print(f"  [{label}] RA={ra:.4f}h Dec={dec:.3f}° Alt={alt:.2f}° move={mv}", flush=True)
         if (mv in (None, "none")) and abs(dec - target_dec) < 0.25:
+            log.info("[%s] settled in %.1fs", label, time.time() - t0)
             return True
-        time.sleep(1.5)
+        time.sleep(POLL_S)
+    log.error("[%s] not settled within %ds", label, SETTLE_TIMEOUT)
     return False
 
 
@@ -64,6 +78,7 @@ try:
     print(f"\nFINAL  RA={ra1:.4f}h Dec={dec1:.3f}° Alt={alt1:.2f}°  "
           f"(Δ from start: {dec1-dec0:+.3f}° Dec)")
 except Exception as e:
+    log.error("aborting the slew: %s", e)
     print("\n!! error — aborting slew:", e)
     try:
         print("abort ->", m.abort())

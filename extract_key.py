@@ -22,10 +22,17 @@ air_rpc.py uses); without it, extraction still works but skips validation.
 
 import argparse
 import io
+import os
 import re
 import sys
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("extract")
 
 # PEM private-key block: PKCS#8 ("PRIVATE KEY"), PKCS#1 ("RSA PRIVATE KEY"),
 # "EC PRIVATE KEY", or "ENCRYPTED PRIVATE KEY". Non-greedy body, DOTALL.
@@ -93,17 +100,34 @@ def main():
                     help="output PEM path (default: embedded_key.pem)")
     ap.add_argument("--index", type=int, help="which key to write if several are found (0-based)")
     ap.add_argument("--stdout", action="store_true", help="print the key instead of writing a file")
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
 
     if not Path(a.package).exists():
         print(f"no such path: {a.package}", file=sys.stderr)
         return 2
 
     # Collect distinct PEM blocks, remembering where each first appeared.
+    # An XAPK is hundreds of megabytes of nested zips, every leaf of which is
+    # decompressed and regex-scanned here — tens of seconds, and previously
+    # completely silent.
     found = {}  # pem-bytes -> source name
-    for name, data in source_iter(a.package):
-        for m in PEM_RE.finditer(data):
-            found.setdefault(m.group(), name)
+    files = [0]
+    scanned = [0]
+    log.info("scanning %s for PEM private-key blocks", a.package)
+    with log.slow("scanning the package", quiet_for=1.0,
+                  detail=lambda: "%d file(s), %.1f MB decompressed, %d key(s)"
+                                 % (files[0], scanned[0] / 1048576.0, len(found))):
+        for name, data in source_iter(a.package):
+            files[0] += 1
+            scanned[0] += len(data)
+            log.trace("scanning %s (%d bytes)", name, len(data))
+            for m in PEM_RE.finditer(data):
+                log.info("PEM block found in %s", name)
+                found.setdefault(m.group(), name)
+    log.info("scanned %d file(s), %.1f MB, found %d distinct PEM block(s)",
+             files[0], scanned[0] / 1048576.0, len(found))
 
     if not found:
         print("no PEM private-key block found in the package.", file=sys.stderr)

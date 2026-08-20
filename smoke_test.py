@@ -9,7 +9,12 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from airlog import get_logger
 from alpaca import Alpaca
+
+log = get_logger("smoke")
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("ASIAIR_HOST")
 if not HOST:
@@ -38,10 +43,15 @@ print("gain now:", c.get("camera", CAM, "gain"))
 for secs in (0.01, 0.5):
     t0 = time.time()
     c.put("camera", CAM, "startexposure", Duration=secs, Light=True)
-    while not c.get("camera", CAM, "imageready"):
-        time.sleep(0.1)
+    # Even a 10 ms exposure can sit here for seconds waiting on readout.
+    with log.slow("exposing %.2fs" % secs, quiet_for=1.0,
+                  detail=lambda: "%.1fs waiting on imageready" % (time.time() - t0)):
+        while not c.get("camera", CAM, "imageready"):
+            time.sleep(0.1)
     img = c.get("camera", CAM, "imagearray")
     flat = [v for row in img for v in row]
+    log.info("%.2fs frame: %dx%d in %.1fs", secs, len(img), len(img[0]),
+             time.time() - t0)
     print(f"  {secs:>5}s -> {len(img)}x{len(img[0])}  "
           f"min={min(flat)} max={max(flat)} mean={sum(flat)/len(flat):.1f}  "
           f"({time.time()-t0:.1f}s)")

@@ -39,7 +39,12 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from air_rpc import Air
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("telemetry")
 
 MOUNT_PORT = 4400
 MAIN_PORT = 4700
@@ -62,8 +67,12 @@ class Link:
         try:
             self.air = Air(self.host, self.port, timeout=8,
                            key=self.key if self.port == MAIN_PORT else None)
+            log.info("connected to %s:%d", self.host, self.port)
             return True
-        except Exception:
+        except Exception as e:
+            # This is a data point, not an error to swallow: losing the link is
+            # the event this whole script exists to timestamp.
+            log.warn("cannot reach %s:%d — %s", self.host, self.port, e)
             self.air = None
             return False
 
@@ -74,7 +83,9 @@ class Link:
             try:
                 r = self.air.call(method, params or [], timeout=timeout)
                 return r.get("result") if isinstance(r, dict) else None
-            except Exception:
+            except Exception as e:
+                log.warn("%s on %d failed (%s) — %s", method, self.port, e,
+                         "giving up for this row" if attempt else "reconnecting")
                 self.close()
                 if attempt:
                     return None
@@ -115,6 +126,8 @@ def sample(mount, main, last_pi):
         row["tracking"] = "" if trk is None else int(bool(trk))
     else:
         row["note"] = "unreachable"
+        log.error("scope_get_info returned nothing — the mount link is down. "
+                  "This row IS the record of when power went away.")
 
     if main is not None:
         for e in main.events():
@@ -159,7 +172,9 @@ def main():
     ap.add_argument("--dir", default=os.path.expanduser("~/ASICAP/telemetry"),
                     help="where to append power-YYYY-MM-DD.csv")
     ap.add_argument("--once", action="store_true", help="one reading, then exit")
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
 
     os.makedirs(a.dir, exist_ok=True)
     path = os.path.join(a.dir, f"power-{datetime.date.today():%Y-%m-%d}.csv")
@@ -182,7 +197,16 @@ def main():
                 now = time.time()
                 if now >= next_row:
                     row, last_pi = sample(mount, main_link, last_pi)
-                    w.writerow(row); fh.flush()
+                    w.writerow(row)
+                    fh.flush()
+                    os.fsync(fh.fileno())   # the interesting rows are the last ones
+                    if row["undervolt"] == 1:
+                        log.error("UNDERVOLT — the Air says its own supply has "
+                                  "sagged. This is the earlier of the two warnings.")
+                    elif row["note"]:
+                        log.warn("row logged with note=%s", row["note"])
+                    else:
+                        log.info("%s", describe(row))
                     print(describe(row), flush=True)
                     if a.once:
                         break
