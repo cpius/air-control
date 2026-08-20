@@ -25,7 +25,12 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from air_rpc import Air
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("mount")
 
 PORT = 4400  # mount + guide channel, unauthenticated
 
@@ -37,6 +42,7 @@ class Mount:
     def _r(self, method, params=None):
         reply = self.air.call(method, params or [], timeout=15)
         if isinstance(reply, dict) and reply.get("error"):
+            log.error("%s -> %s (code %s)", method, reply["error"], reply.get("code"))
             raise RuntimeError(f"{method}: {reply['error']} (code {reply.get('code')})")
         return reply.get("result") if isinstance(reply, dict) else reply
 
@@ -62,11 +68,27 @@ class Mount:
         wrong (the tell: at Dec 90 the reported Alt is 0, not your latitude).
         Pass `restore=(lat, lon)` to put it straight back.
         """
+        log.info("attaching the mount (set_connected mount=True)")
         r = self._r("set_connected", [{"mount": True}])
         t0 = time.time()
-        while time.time() - t0 < 15 and not self.connected():
-            time.sleep(0.5)
+        ok = [False]
+        # The attach settles asynchronously; up to 15 s of nothing is normal,
+        # and a mount that is not cabled looks exactly the same until it times
+        # out — so report the wait every second.
+        with log.slow("waiting for the mount to attach", quiet_for=1.0,
+                      detail=lambda: "attached" if ok[0] else "not attached yet"):
+            while time.time() - t0 < 15:
+                if self.connected():
+                    ok[0] = True
+                    break
+                time.sleep(0.5)
+        if ok[0]:
+            log.info("mount attached after %.1fs", time.time() - t0)
+        else:
+            log.warn("mount still not attached after %.1fs", time.time() - t0)
         if restore:
+            log.info("restoring the site to lat=%s lon=%s (attaching zeroes it)",
+                     restore[0], restore[1])
             self._hold_location(restore)
         return r
 
@@ -80,23 +102,39 @@ class Mount:
         """
         end = time.time() + deadline_s
         good_since = None
-        while time.time() < end:
-            time.sleep(1.5)
-            try:
-                ok, lat, lon = self.check_location()
-            except RuntimeError:
-                good_since = None          # mount not ready yet
-                continue
-            if ok and abs(lat - site[0]) < 1e-3 and abs(lon - site[1]) < 1e-3:
-                good_since = good_since or time.time()
-                if time.time() - good_since >= hold_s:
-                    return True
-            else:
-                good_since = None
+        writes = [0]
+        state = ["starting"]
+        with log.slow("holding the site at %.4f, %.4f" % (site[0], site[1]),
+                      quiet_for=1.0,
+                      detail=lambda: "%s, %d rewrite(s)" % (state[0], writes[0])):
+            while time.time() < end:
+                time.sleep(1.5)
                 try:
-                    self.set_location(*site)
+                    ok, lat, lon = self.check_location()
                 except RuntimeError:
-                    pass
+                    state[0] = "mount not answering yet"
+                    good_since = None          # mount not ready yet
+                    continue
+                if ok and abs(lat - site[0]) < 1e-3 and abs(lon - site[1]) < 1e-3:
+                    good_since = good_since or time.time()
+                    state[0] = "held for %.1fs of %.1fs" % (
+                        time.time() - good_since, hold_s)
+                    if time.time() - good_since >= hold_s:
+                        log.info("site held at %.4f, %.4f for %.0fs — it stuck",
+                                 lat, lon, hold_s)
+                        return True
+                else:
+                    good_since = None
+                    state[0] = "read back [%s, %s] — rewriting" % (lat, lon)
+                    log.warn("site read back as [%s, %s], not [%s, %s] — "
+                             "writing it again", lat, lon, site[0], site[1])
+                    writes[0] += 1
+                    try:
+                        self.set_location(*site)
+                    except RuntimeError as e:
+                        log.warn("scope_set_location failed: %s", e)
+        log.error("site would not stay set after %.0fs and %d rewrite(s) — every "
+                  "alt/az from here is suspect", deadline_s, writes[0])
         return False
 
     def disconnect(self):
@@ -111,14 +149,18 @@ class Mount:
                 saved = (lat, lon)
         except Exception:
             pass
+        log.info("reconnecting the mount (site to preserve: %s)", saved)
         self.disconnect()
-        time.sleep(2)
+        with log.slow("waiting 2s after detach", quiet_for=1.0):
+            time.sleep(2)
         return self.connect(restore=saved)
 
     def ensure_connected(self, verbose=True, restore=None):
         """Attach the mount if it is not already. Returns True if it had to."""
         if self.connected():
+            log.debug("mount is already attached")
             return False
+        log.info("mount not attached — connecting")
         if verbose:
             print("mount not attached — connecting ...")
         self.connect(restore=restore)
@@ -181,23 +223,58 @@ class Mount:
         end = time.time() + timeout
         next_ka = time.time() + keepalive
         last = None
-        while time.time() < end:
-            for ev in self.air.drain_events():
-                if ev.get("Event") != name:
-                    continue
-                last = ev
-                if on_progress:
-                    on_progress(ev)
-                if ev.get("state") == "complete":
-                    return ev
-            if not self.air.alive:
-                raise ConnectionError(
-                    f"the Air closed the 4400 connection while waiting for {name}"
-                    " — the mount is probably still moving; re-check with 'coord'")
-            if time.time() >= next_ka:
-                self.air.call("scope_get_ra_dec", [], timeout=10)  # reset idle timer
-                next_ka = time.time() + keepalive
-            time.sleep(poll)
+        t0 = time.time()
+        seen = [0]
+        state = ["no progress event yet"]
+
+        def where():
+            ev = last or {}
+            bits = [state[0]]
+            if "RA" in ev or "Dec" in ev:
+                bits.append("RA=%.4f Dec=%.4f" % (ev.get("RA", float("nan")),
+                                                  ev.get("Dec", float("nan"))))
+            bits.append("%d event(s)" % seen[0])
+            return "  ".join(bits)
+
+        # A slew is tens of seconds and the mount is moving the whole time.
+        # Reporting where it is once a second is the difference between "still
+        # slewing" and "it stopped and nobody noticed".
+        log.info("waiting for %s (timeout %.0fs, keepalive every %.0fs)",
+                 name, timeout, keepalive)
+        with log.slow("%s" % name, quiet_for=1.0, detail=where):
+            while time.time() < end:
+                for ev in self.air.drain_events():
+                    if ev.get("Event") != name:
+                        continue
+                    last = ev
+                    seen[0] += 1
+                    state[0] = ev.get("state", "?")
+                    log.debug("%s %s at %.1fs: %s", name, ev.get("state"),
+                              ev.get("lapse_ms", 0) / 1000.0,
+                              json.dumps({k: v for k, v in ev.items()
+                                          if k not in ("Event", "Timestamp")},
+                                         ensure_ascii=False)[:160])
+                    if on_progress:
+                        on_progress(ev)
+                    if ev.get("state") == "complete":
+                        log.info("%s complete after %.1fs (%d progress event(s))",
+                                 name, time.time() - t0, seen[0])
+                        return ev
+                if not self.air.alive:
+                    log.error("4400 closed mid-%s after %.1fs — the mount is "
+                              "probably still moving", name, time.time() - t0)
+                    raise ConnectionError(
+                        f"the Air closed the 4400 connection while waiting for {name}"
+                        " — the mount is probably still moving; re-check with 'coord'")
+                if time.time() >= next_ka:
+                    # 4400 hangs up an idle socket at ~15s; any request resets it.
+                    log.debug("keepalive on 4400 (%.0fs into the wait)",
+                              time.time() - t0)
+                    self.air.call("scope_get_ra_dec", [], timeout=10)
+                    next_ka = time.time() + keepalive
+                time.sleep(poll)
+        log.error("%s never reported complete within %.0fs (%d event(s) seen)",
+                  name, timeout, seen[0])
         raise TimeoutError(
             f"{name} did not report state=complete within {timeout:.0f}s"
             + (f"; last progress: {json.dumps(last, ensure_ascii=False)}" if last
@@ -218,9 +295,19 @@ class Mount:
         naive settle-check returns mid-slew and the next command then fails
         with `operation is in progress` (code 268).
         """
+        log.info("goto RA=%.4fh Dec=%.4f (wait=%s, timeout=%.0fs)",
+                 ra_h, dec_d, wait, timeout)
+        try:
+            st = self.state()
+            log.info("  from RA=%.4f Dec=%.4f Alt=%.2f Az=%.2f",
+                     st["RA"], st["Dec"], st["Alt"], st["Az"])
+        except Exception as e:
+            log.debug("could not read the start position: %s", e)
         self.air.drain_events()      # stale ScopeGoto would complete instantly
         r = self._r("scope_goto", [float(ra_h), float(dec_d)])
+        log.debug("scope_goto accepted -> %s", r)
         if not wait:
+            log.info("not waiting — the slew continues on the mount")
             return r
         try:
             self._wait_event("ScopeGoto", timeout=timeout, on_progress=on_progress)
@@ -229,6 +316,8 @@ class Mount:
             if (abs(st["Dec"] - float(dec_d)) < 0.05
                     and abs(st["RA"] - float(ra_h)) < 0.02
                     and st.get("move_status") in (None, "none")):
+                log.warn("no ScopeGoto completion, but the mount is on target "
+                         "and idle — treating it as arrived")
                 print(f"WARNING: {e}\n  ... but the mount is at RA "
                       f"{st['RA']:.4f} Dec {st['Dec']:.4f} and idle, so "
                       f"treating it as arrived.", file=sys.stderr)
@@ -255,15 +344,25 @@ class Mount:
         ScopeHome degrades to the old behaviour rather than raising on a mount
         that did in fact get home.
         """
+        log.info("park / Go Home (wait=%s, timeout=%.0fs)", wait, timeout)
+        try:
+            st = self.state()
+            log.info("  from Dec=%.4f Alt=%.2f", st["Dec"], st["Alt"])
+        except Exception as e:
+            log.debug("could not read the start position: %s", e)
         self.air.drain_events()      # stale ScopeHome would complete instantly
         r = self._r("scope_park")
+        log.debug("scope_park accepted -> %s", r)
         if not wait:
+            log.info("not waiting — the home move continues on the mount")
             return r
         try:
             self._wait_event("ScopeHome", timeout=timeout, on_progress=on_progress)
         except TimeoutError as e:
             st = self.state()
             if abs(st["Dec"] - 90.0) < 0.05 and st.get("move_status") in (None, "none"):
+                log.warn("no ScopeHome completion, but the mount is at Dec 90 "
+                         "and idle — treating it as homed")
                 print(f"WARNING: {e}\n  ... but the mount is at Dec "
                       f"{st['Dec']:.4f} and idle, so treating it as homed.",
                       file=sys.stderr)
@@ -302,7 +401,10 @@ def main():
     g.add_argument("--timeout", type=float, default=120.0)
     y = sub.add_parser("sync"); y.add_argument("ra", type=float); y.add_argument("dec", type=float)
     m = sub.add_parser("move"); m.add_argument("direction")
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
+    log.info("mount %s -> %s:%d", a.cmd, a.host, PORT)
 
     mnt = Mount(a.host)
     try:
@@ -378,4 +480,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except RuntimeError as e:
+        log.error("%s", e)
         print("ERROR:", e, file=sys.stderr); sys.exit(1)

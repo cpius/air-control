@@ -25,10 +25,25 @@ ImageSocketRuntime and com.wss.rxscoketclient.SocketObservable / HeaderData):
 """
 import argparse, io, json, os, socket, struct, sys, threading, time, zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("image")
+
 HOST = os.environ.get("ASIAIR_HOST")
 PORT = 4800
 MAGIC = 963
 HDR = 80
+
+
+def _human(n):
+    """Byte count as KB/MB — download lines are read at a glance, mid-session."""
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return "%.0f %s" % (n, unit) if unit == "B" else "%.1f %s" % (n, unit)
+        n /= 1024.0
 
 
 def build_cmd(cmd_id, method, params=None):
@@ -63,38 +78,72 @@ def parse_header(h):
 
 class MainImage:
     def __init__(self, host=HOST, port=PORT, timeout=180):
-        self.s = socket.create_connection((host, port), timeout=15)
+        self.host, self.port = host, port
+        with log.slow("connect %s:%d" % (host, port), quiet_for=1.0):
+            self.s = socket.create_connection((host, port), timeout=15)
         self.s.settimeout(timeout)
+        log.debug("4800 connected to %s (read timeout %ss); heartbeat every 4s",
+                  host, timeout)
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        self._beats = 0
         self._hb = threading.Thread(target=self._heartbeat, daemon=True)
         self._hb.start()
 
     def _heartbeat(self):
+        # Mandatory: 4800 resets a client that stays silent for ~4s. If it ever
+        # dies the socket follows within seconds, so say so loudly -- otherwise
+        # the next download just "hangs" for no visible reason.
         while not self._stop.wait(4.0):
             try:
                 with self._lock:
                     self.s.sendall(build_cmd(1, "test_connection"))
-            except Exception:
+                self._beats += 1
+                log.trace("4800 heartbeat #%d", self._beats)
+            except Exception as e:
+                log.warn("4800 heartbeat failed after %d beat(s): %s — the Air "
+                         "will drop this socket", self._beats, e)
                 return
 
     def send(self, cmd_id, method, params=None):
+        log.debug("4800 -> id=%d %s %s", cmd_id, method, params if params else "")
         with self._lock:
             self.s.sendall(build_cmd(cmd_id, method, params))
 
     def _recv_exact(self, n):
+        """Read exactly n bytes, reporting throughput every second.
+
+        A full-frame payload is several MB over Wi-Fi, so this is one of the
+        genuinely multi-second operations in the toolkit — and the one where a
+        stalled transfer is least visible, because a half-received frame looks
+        exactly like a slow one until the read timeout fires minutes later.
+        """
         buf = bytearray()
-        while len(buf) < n:
-            chunk = self.s.recv(min(65536, n - len(buf)))
-            if not chunk:
-                raise ConnectionError("socket closed mid-frame")
-            buf += chunk
+        t0 = time.time()
+        with log.slow("receive %s" % _human(n), quiet_for=1.0,
+                      detail=lambda: "%s / %s  (%s/s)"
+                                     % (_human(len(buf)), _human(n),
+                                        _human(len(buf) / max(time.time() - t0, 1e-3)))):
+            while len(buf) < n:
+                chunk = self.s.recv(min(65536, n - len(buf)))
+                if not chunk:
+                    log.error("4800 socket closed with %d of %d bytes read",
+                              len(buf), n)
+                    raise ConnectionError("socket closed mid-frame")
+                buf += chunk
+        dt = time.time() - t0
+        if n > 262144:
+            log.debug("received %s in %.2fs (%s/s)", _human(n), dt,
+                      _human(n / max(dt, 1e-3)))
         return bytes(buf)
 
     def read_frame(self):
         """Return (header_dict, payload_bytes)."""
         hdr = parse_header(self._recv_exact(HDR))
         length = hdr["length"]
+        log.trace("4800 frame id=%d %dx%d dataType=%d %s",
+                  hdr["id"], hdr["width"], hdr["height"], hdr["dataType"],
+                  _human(length))
         payload = self._recv_exact(length) if length > 0 else b""
         return hdr, payload
 
@@ -102,24 +151,40 @@ class MainImage:
         """Send a download command and return (header, unzipped_files dict)."""
         self.send(cmd_id, method)
         t0 = time.time()
-        while time.time() - t0 < wait:
-            hdr, payload = self.read_frame()
-            if hdr["id"] == 1:                      # heartbeat echo
-                continue
-            if hdr["length"] in (4, 21) and hdr["width"] == 0:
-                print("   (short/status frame:", payload[:32], ")")
-                continue
-            files = {}
-            if payload[:2] == b"PK":
-                with zipfile.ZipFile(io.BytesIO(payload)) as z:
-                    for n in z.namelist():
-                        files[n] = z.read(n)
-            else:
-                files["<raw>"] = payload
-            return hdr, files
+        skipped = [0]
+        with log.slow("download %s" % method, quiet_for=1.0,
+                      detail=lambda: "%d heartbeat/status frame(s) skipped so far"
+                                     % skipped[0]) as tk:
+            while time.time() - t0 < wait:
+                hdr, payload = self.read_frame()
+                if hdr["id"] == 1:                      # heartbeat echo
+                    skipped[0] += 1
+                    continue
+                if hdr["length"] in (4, 21) and hdr["width"] == 0:
+                    skipped[0] += 1
+                    tk.event("short/status frame: %r", payload[:32])
+                    print("   (short/status frame:", payload[:32], ")")
+                    continue
+                files = {}
+                if payload[:2] == b"PK":
+                    tk.set("unzipping %s" % _human(len(payload)))
+                    with zipfile.ZipFile(io.BytesIO(payload)) as z:
+                        for n in z.namelist():
+                            files[n] = z.read(n)
+                    log.debug("unzipped %d file(s): %s", len(files),
+                              ", ".join("%s %s" % (k, _human(len(v)))
+                                        for k, v in files.items()))
+                else:
+                    files["<raw>"] = payload
+                log.debug("%s -> %dx%d, %s in %.2fs", method, hdr["width"],
+                          hdr["height"], _human(len(payload)), time.time() - t0)
+                return hdr, files
+        log.error("no image frame from %s within %ss (%d frames skipped)",
+                  method, wait, skipped[0])
         raise TimeoutError("no image frame")
 
     def close(self):
+        log.debug("closing 4800 to %s after %d heartbeat(s)", self.host, self._beats)
         self._stop.set()
         try:
             self.s.close()
@@ -135,7 +200,9 @@ if __name__ == "__main__":
     ap.add_argument("--method", default="get_current_img")
     ap.add_argument("--id", type=int, default=0)
     ap.add_argument("--out", default="native_img")
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
 
     m = MainImage(a.host)
     print(f"connected to {a.host}:{PORT}; requesting {a.method} ...")

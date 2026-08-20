@@ -173,6 +173,77 @@ That is the only path that saves to eMMC and dithers between frames. The full
 shape, and the four details that each break it silently, are in
 [`RPC_METHODS.md`](RPC_METHODS.md) under *Autorun*.
 
+## 8. Logging — a line a second through anything slow
+
+Every tool in here talks to hardware over Wi-Fi, and the failures all look the
+same from the outside: **a long silence**. A goto that is still slewing, a
+socket the Air dropped, a camera another client is holding, a battery that just
+died — all of them present as nothing happening. So nothing here is allowed to
+go quiet. Any operation that can take more than a second reports itself **every
+second while it runs**, with live values, through `airlog.py`.
+
+```
+00:25:15  +3.0s info  mount:  waiting for ScopeGoto (timeout 120s, keepalive every 5s)
+00:25:17  +5.0s info  mount:  ... ScopeGoto  2.0s  working  RA=20.0200 Dec=35.1000  1 event(s)
+00:25:18  +6.0s info  mount:  ... ScopeGoto  3.0s  working  RA=20.0400 Dec=35.2000  2 event(s)
+00:25:24 +12.2s info  mount:  ScopeGoto complete after 9.2s (9 progress event(s))
+```
+
+The progress line comes from a background thread, deliberately: most of these
+waits are blocked in `socket.recv` or `time.sleep`, where the calling code
+cannot emit anything at all. Nothing prints until an operation has actually
+been slow (1 s), so the fast path stays quiet and **every tick line in the log
+means something really did take a second**.
+
+Log output goes to **stderr**, so `mount.py coord > coords.json` still works.
+
+| Flag | Effect |
+|---|---|
+| *(default)* | Per-second progress, state changes, warnings, errors. |
+| `-v` | Adds every RPC call, every frame, every retry and reconnect. |
+| `-vv` | Adds the wire: request and reply bodies. |
+| `-q` | Warnings and errors only — silences the per-second ticks. |
+| `--log-file PATH` | Append the full log to a file as well as stderr. |
+
+`AIRLOG=debug` and `AIRLOG_FILE=path` set the same things from the environment,
+which is what you want for an unattended overnight run. The flags work on either
+side of a subcommand: `mount.py -v goto ...` and `mount.py goto ... -v` both
+parse.
+
+What is instrumented, roughly: every RPC call on 4400/4700 that outlives a
+second; slews and homing, with live RA/Dec; the site-location hold; focuser
+moves, with the position counting down; frame downloads on 4800, with
+throughput; exposures, counting the shutter and then the readout separately;
+guide calibration, by state; the pure-Python pixel work in `focus.py` and
+`starhunt.py`, by row; subnet sweeps and mDNS browses, by host; Canon bulb
+exposures, counting the open shutter down; and Alpaca HTTP requests.
+
+## 9. Focus frames are written as they are taken
+
+`focus.py` commits **every frame to disk at the step**, not at the end of the
+run. Each step writes three files immediately:
+
+```
+focus-frames/20260821-003119/
+  step007.raw    the 16-bit row-major buffer, exactly as measured
+  step007.json   frame geometry, focuser position, peak, star width, reject reason
+  step007.png    a 240x240 closeup of the tracked star
+```
+
+This used to accumulate frame buffers in memory and render them after the
+sweep, which was wrong twice over. It held ~75 MB of buffers for no benefit,
+and — the real problem — it produced **nothing at all** when a run did not
+reach the end. A sweep that lost the star at step 6, or that you killed, is
+precisely the sweep whose frames you want, and those runs left an empty
+directory behind. Frames rejected by the identity lock are written too, with
+the reason in the filename, because a rejected frame is the most useful thing
+in the directory.
+
+Verified by SIGKILL mid-sweep: three complete steps, raw buffers intact.
+
+`--images DIR` picks the directory, `--no-raw` keeps the PNGs but drops the
+2.4 MB raw dumps, `--no-images` turns it off entirely.
+
 ## Files
 
 | File | What it does |
@@ -193,6 +264,7 @@ shape, and the four details that each break it silently, are in
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
 | `smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
+| `airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
 | `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
 ## Safety notes

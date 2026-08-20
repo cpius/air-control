@@ -27,6 +27,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("alpaca")
+
 CLIENT_ID = 5851
 _txn = itertools.count(1)
 
@@ -53,16 +59,32 @@ class Alpaca:
                 method="PUT",
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
+        t0 = time.time()
+        # `imagearray` is the slow one: a full frame is 8.3M JSON numbers and
+        # takes tens of seconds to transfer and parse. Every request ticks.
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                body = json.loads(r.read().decode())
+            with log.slow("%s %s" % (method, url.rsplit("/", 1)[-1]),
+                          quiet_for=1.0,
+                          detail=lambda: "waiting on %s (timeout %ss)"
+                                         % (self.base, self.timeout)):
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    raw = r.read()
+                log.debug("%s %s -> %d bytes in %.2fs", method,
+                          url.rsplit("/", 1)[-1], len(raw), time.time() - t0)
+                with log.slow("parsing %.1f MB of JSON" % (len(raw) / 1048576.0),
+                              quiet_for=1.0):
+                    body = json.loads(raw.decode())
         except urllib.error.HTTPError as e:
+            log.error("HTTP %d on %s", e.code, url)
             raise AlpacaError(f"HTTP {e.code} on {url}: {e.read()[:400]!r}") from None
         except urllib.error.URLError as e:
+            log.error("cannot reach %s: %s", url, e.reason)
             raise AlpacaError(f"cannot reach {url}: {e.reason}") from None
 
         # Alpaca reports device errors in-band, with HTTP 200.
         if body.get("ErrorNumber"):
+            log.error("device error %s: %s", body["ErrorNumber"],
+                      body.get("ErrorMessage"))
             raise AlpacaError(f"device error {body['ErrorNumber']}: {body.get('ErrorMessage')}")
         return body.get("Value")
 
@@ -97,11 +119,17 @@ class Alpaca:
             "bayeroffsetx", "bayeroffsety", "exposuremin", "exposuremax",
         ]
         out = {}
-        for k in keys:
-            try:
-                out[k] = self.get(dev="camera", num=num, prop=k)
-            except AlpacaError as e:
-                out[k] = f"<{e}>"
+        # 22 sequential HTTP round trips — several seconds on a busy Air.
+        done = [0]
+        with log.slow("reading %d camera properties" % len(keys), quiet_for=1.0,
+                      detail=lambda: "%d/%d" % (done[0], len(keys))):
+            for k in keys:
+                try:
+                    out[k] = self.get(dev="camera", num=num, prop=k)
+                except AlpacaError as e:
+                    log.warn("%s unreadable: %s", k, e)
+                    out[k] = f"<{e}>"
+                done[0] += 1
         return out
 
     def expose(self, seconds, num=0, light=True, gain=None, offset=None, poll=0.5):
@@ -111,14 +139,28 @@ class Alpaca:
         if offset is not None:
             self.put("camera", num, "offset", Offset=int(offset))
 
+        log.info("startexposure %.3fs (light=%s, gain=%s)", seconds, light, gain)
         self.put("camera", num, "startexposure", Duration=float(seconds), Light=bool(light))
-        deadline = time.time() + float(seconds) + 120
-        while time.time() < deadline:
-            if self.get("camera", num, "imageready"):
-                break
-            time.sleep(poll)
-        else:
-            raise AlpacaError("timed out waiting for imageready")
+        t0 = time.time()
+        deadline = t0 + float(seconds) + 120
+        # The exposure runs, then the Air reads out and debayers. Both are
+        # invisible from here except through this poll, so narrate it.
+        with log.slow("exposing %.3fs" % seconds, quiet_for=1.0,
+                      detail=lambda: "%.1fs elapsed%s"
+                                     % (time.time() - t0,
+                                        " — exposure over, waiting on readout"
+                                        if time.time() - t0 > seconds else "")):
+            while time.time() < deadline:
+                if self.get("camera", num, "imageready"):
+                    break
+                time.sleep(poll)
+            else:
+                log.error("imageready never went true within %.0fs",
+                          float(seconds) + 120)
+                raise AlpacaError("timed out waiting for imageready")
+        log.info("image ready after %.1fs — downloading imagearray "
+                 "(this is the slow part: millions of JSON numbers)",
+                 time.time() - t0)
         return self.get("camera", num, "imagearray")
 
 
@@ -147,7 +189,9 @@ def main():
     e.add_argument("--dark", action="store_true")
     e.add_argument("--out", help="write raw imagearray JSON here")
 
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
     c = Alpaca(a.host, a.port)
 
     if a.cmd == "info":
@@ -177,14 +221,16 @@ def main():
                        gain=a.gain, offset=a.offset)
         rows = len(img)
         cols = len(img[0]) if rows else 0
-        flat = [v for row in img for v in (row if isinstance(row, list) else [row])]
-        nums = [v for v in flat if isinstance(v, (int, float))]
+        with log.slow("flattening %d rows" % rows, quiet_for=1.0):
+            flat = [v for row in img for v in (row if isinstance(row, list) else [row])]
+            nums = [v for v in flat if isinstance(v, (int, float))]
         print(f"got {rows}x{cols} in {time.time()-t0:.1f}s")
         if nums:
             print(f"min={min(nums)} max={max(nums)} mean={sum(nums)/len(nums):.1f}")
         if a.out:
-            with open(a.out, "w") as f:
-                json.dump(img, f)
+            with log.slow("writing %s" % a.out, quiet_for=1.0):
+                with open(a.out, "w") as f:
+                    json.dump(img, f)
             print("wrote", a.out)
 
 

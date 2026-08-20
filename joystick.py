@@ -12,6 +12,9 @@ import math, os, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from air_rpc import Air
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("joystick")
 
 HOST = os.environ.get("ASIAIR_HOST")
 
@@ -46,9 +49,12 @@ class Joystick:
                 return r.get("result")
             except RuntimeError:
                 raise
-            except Exception:
+            except Exception as e:
                 if i == tries - 1:
+                    log.error("%s failed %d times on 4400: %s", m, tries, e)
                     raise
+                log.warn("%s failed (%s) — reconnecting 4400, attempt %d/%d",
+                         m, e, i + 2, tries)
                 try:
                     self.air.close()
                 except Exception:
@@ -68,28 +74,45 @@ class Joystick:
 
     def move(self, direction, speed=None):
         p = [direction] if speed is None else [direction, int(speed)]
+        log.debug("scope_move %s", p)
         return self._r("scope_move", p)
 
     def stop(self):
         try:
             return self._r("scope_move", ["none"])
-        except Exception:
+        except Exception as e:
+            log.warn("stop failed (%s) — THE MOUNT MAY STILL BE MOVING", e)
             return None
 
     def nudge(self, direction, seconds, speed=None):
-        """Move in a direction for a fixed time, then stop. Returns (dRA_deg, dDec_deg)."""
+        """Move in a direction for a fixed time, then stop. Returns (dRA_deg, dDec_deg).
+
+        The mount is physically moving for the whole of `seconds`, which in a
+        spiral search is routinely 10-30 s per step. Nothing else reports that,
+        so the countdown here is the only sign the rig is not simply wedged.
+        """
         a = self.state()
         t0 = time.time()
+        log.info("nudge %s for %.2fs from RA=%.4f Dec=%.4f",
+                 direction, seconds, a["RA"], a["Dec"])
         self.move(direction, speed)
         try:
-            while time.time() - t0 < seconds:
-                time.sleep(0.02)
+            with log.slow("moving %s" % direction, quiet_for=1.0,
+                          detail=lambda: "%.1fs of %.1fs (%.0f%%)"
+                                         % (time.time() - t0, seconds,
+                                            100.0 * min(1.0, (time.time() - t0) / seconds))):
+                while time.time() - t0 < seconds:
+                    time.sleep(0.02)
         finally:
             self.stop()
-        time.sleep(0.6)                      # let it settle
+        with log.slow("settling", quiet_for=1.0):
+            time.sleep(0.6)                  # let it settle
         b = self.state()
         dra = (b["RA"] - a["RA"]) * 15.0 * math.cos(math.radians((a["Dec"] + b["Dec"]) / 2))
-        return dra, b["Dec"] - a["Dec"], a, b
+        ddec = b["Dec"] - a["Dec"]
+        log.info("  moved dRA=%+.4f deg dDec=%+.4f deg in %.2fs (%.2f arcmin/s)",
+                 dra, ddec, seconds, math.hypot(dra, ddec) * 60 / max(seconds, 1e-6))
+        return dra, ddec, a, b
 
     def close(self):
         try:
@@ -104,7 +127,9 @@ if __name__ == "__main__":
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
+    add_log_args(ap)
     args = ap.parse_args()
+    configure_logging(args)
 
     j = Joystick(args.host)
     try:
@@ -115,6 +140,7 @@ if __name__ == "__main__":
         print("\ncalibrating: 'south' for 2.0 s at each rate\n")
         results = {}
         for i in (0, 1, 2, 3, 4):
+            log.info("--- calibrating rate %d (%s) ---", i, names[i])
             j.set_rate(i)
             time.sleep(0.4)
             dra, ddec, a, b = j.nudge("south", 2.0)

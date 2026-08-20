@@ -23,8 +23,14 @@ import argparse
 import json
 import os
 import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from air_rpc import Air
+from airlog import add_log_args, configure_logging, get_logger
+
+log = get_logger("guide")
 
 PORT = 4400
 
@@ -53,6 +59,7 @@ class Guide:
     def _r(self, method, params=None):
         reply = self.air.call(method, params or [], timeout=15)
         if isinstance(reply, dict) and reply.get("error"):
+            log.error("%s -> %s (code %s)", method, reply["error"], reply.get("code"))
             raise RuntimeError(f"{method}: {reply['error']} (code {reply.get('code')})")
         return reply.get("result") if isinstance(reply, dict) else reply
 
@@ -107,7 +114,14 @@ class Guide:
         `loop` alone leaves the state at `Looping` indefinitely, however rich the
         field. Only the app auto-selects; from here you must pick the star.
         """
-        return self._r("set_lock_position", [float(x), float(y), bool(exact)])
+        log.info("set_lock_position(%.1f, %.1f, exact=%s) — guide-space coords, "
+                 "not sensor pixels", x, y, exact)
+        r = self._r("set_lock_position", [float(x), float(y), bool(exact)])
+        try:
+            log.info("  Air snapped the lock to %s", self._r("get_lock_position"))
+        except RuntimeError as e:
+            log.warn("  could not read the lock back: %s", e)
+        return r
 
     # --- guiding (calibration SLEWS the mount) ---
     def start(self, settle=None, recalibrate=False):
@@ -118,7 +132,44 @@ class Guide:
         redone rather than reused. Passing False reuses an existing calibration,
         which turns a ~7 minute start into ~10 seconds.
         """
-        return self._r("guide", [settle or DEFAULT_SETTLE, bool(recalibrate)])
+        settle = settle or DEFAULT_SETTLE
+        # Calibration SLEWS the mount and takes ~7 minutes; reusing one is ~10 s.
+        # The RPC returns on acceptance, so the state poll below is what actually
+        # reports progress -- once a second, because a stuck calibration and a
+        # working one are otherwise identical for seven minutes.
+        log.info("guide start: settle=%s recalibrate=%s (%s)", settle, recalibrate,
+                 "expect ~7 min — the mount will slew" if recalibrate
+                 else "reusing the stored calibration, expect ~10 s")
+        r = self._r("guide", [settle, bool(recalibrate)])
+        log.info("guide accepted -> %s; now in state %s", r, self.state())
+        return r
+
+    def wait_until(self, states=("Guiding",), timeout=600.0, poll=1.0):
+        """Poll get_app_state until it lands in `states`. Returns the state.
+
+        Nothing pushes guiding progress as events, so this is a poll -- and the
+        thing being waited on (calibration) is the longest operation in the
+        toolkit at ~7 minutes. Every second, say which state it is in.
+        """
+        t0 = time.time()
+        cur = [None]
+        with log.slow("waiting for %s" % "/".join(states), quiet_for=1.0,
+                      detail=lambda: "state=%s" % cur[0]):
+            while time.time() - t0 < timeout:
+                st = self.state()
+                if st != cur[0]:
+                    log.info("guide state: %s -> %s (%.0fs in)", cur[0], st,
+                             time.time() - t0)
+                    cur[0] = st
+                if st in states:
+                    return st
+                if st in ("Idle", "Stopped", "LostLock"):
+                    log.warn("guiding fell back to %s after %.0fs", st,
+                             time.time() - t0)
+                time.sleep(poll)
+        log.error("guiding never reached %s within %.0fs (last state %s)",
+                  states, timeout, cur[0])
+        raise TimeoutError(f"guide state {cur[0]!r}, wanted one of {states}")
 
     def close(self):
         self.air.close()
@@ -135,12 +186,18 @@ def main():
     st = sub.add_parser("start")
     st.add_argument("--recalibrate", action="store_true",
                     help="redo calibration instead of reusing it (~7 min vs ~10 s)")
+    st.add_argument("--wait", type=float, default=0.0, metavar="SECONDS",
+                    help="poll until the state reaches Guiding, logging it "
+                         "every second (0 = return as soon as it is accepted)")
     lk = sub.add_parser("lock", help="select the guide star (guide-space coords)")
     lk.add_argument("x", type=float); lk.add_argument("y", type=float)
     sub.add_parser("calibrated"); sub.add_parser("history")
     c = sub.add_parser("connect"); c.add_argument("state", choices=["on", "off"])
     e = sub.add_parser("expose"); e.add_argument("ms", type=int)
+    add_log_args(ap)
     a = ap.parse_args()
+    configure_logging(a)
+    log.info("guide %s -> %s:%d", a.cmd, a.host, PORT)
 
     g = Guide(a.host)
     try:
@@ -160,6 +217,8 @@ def main():
             print("lock now:", g._r("get_lock_position"), "| state:", g.state())
         elif a.cmd == "start":
             print("guide ->", g.start(recalibrate=a.recalibrate))
+            if a.wait:
+                print("state ->", g.wait_until(timeout=a.wait))
         elif a.cmd == "stop":
             print("stop_capture ->", g.stop())
         elif a.cmd == "calibrated":
@@ -174,4 +233,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except RuntimeError as e:
+        log.error("%s", e)
         print("ERROR:", e, file=sys.stderr); sys.exit(1)
