@@ -292,6 +292,68 @@ RA, comparable to the whole field at 1260 mm.
 every successful solve** — so a pointing error computed right after a solve reads
 zero by construction.
 
+### Video, ROI and planetary stacking (and why probing missed them)
+
+The firmware has all of this. It was reported absent here until 2026-08-21
+because the names were guessed rather than read:
+
+| Command | Params |
+|---|---|
+| `start_record_avi` / `stop_record_avi` | **none** — records AVI to eMMC |
+| `set_subframe` / `get_subframe` | `{x, y, width, height}`, sensor pixels |
+| `start_planet_stack` / `stop_planet_stack` / `clear_planet_stack` | on-device planetary stacking |
+| `get_planet_position` | |
+| `set_rtmp_config` / `get_rtmp_config` / `start_avi_rtmp` / `stop_avi_rtmp` | live streaming |
+
+Page is `"video"` (`set_page(["video"])`), alongside the known
+`preview` / `focus` / `autosave` / `pa` / `plan`. Events: `AviRecord`
+`{is_working, lapse_sec, fps, write_file_fps}`, `VideoCapture`, `PlanetStack`,
+`AviRtmp`.
+
+`set_subframe` crops the **readout**, which is what makes planetary work
+possible over the network: a small ROI is full sensor resolution *and* fast,
+where the 4800 preview is a fixed ~1472 px subsample at ~1 fps.
+
+**The lesson: `103 method not found` proves your guess was wrong, not that the
+feature is missing.** `start_video`, `start_recording`, `start_video_record`,
+`set_roi`, `get_roi`, `set_camera_roi` all return `103`. The real names use a
+different word order and different vocabulary (`subframe`, not `roi`).
+
+The app ships its own command table — `com.zwoasi.kit.cmd.CmdMethod` paired
+with `MainCameraConstants` / `GuiderCameraConstants`. Extracted with jadx into
+`CMD_METHODS.tsv`: **289 commands, of which 170 were undocumented here**, i.e.
+probing had found about 40% of the API. Param shapes are in
+`MainCameraGateway`, `VideoGateway` and `PlanRunCommandRepository`.
+
+### `get_last_solve_result` returns the PREVIOUS solve, silently
+
+Two failure modes, both quiet, and they compound.
+
+`start_solve` returns `0` at once and answers asynchronously through
+`PlateSolve` events. When it cannot converge -- twilight, cloud, or a camera
+that is not looking through the OTA -- it reaches `state: "solving"` and stays
+there. Nothing ever times out. **Cap every solve at 20 s**; one that has not
+converged by then will not.
+
+Worse: after a failed or still-running solve, `get_last_solve_result` hands back
+the *previous* solve verbatim, `state: "complete"` included. Any pointing error
+computed from it is nonsense that reads as authoritative. Seen live 2026-08-21 --
+two solves 15 minutes and one goto apart returned byte-identical `ra_dec`,
+`fov`, `focal_len` and `star_number`; the only tell was `image_id` unchanged at
+`7`.
+
+**`image_id` is the discriminator.** Read it before starting and reject a result
+that comes back with the same one. Both guards live in `solving.py`:
+
+```python
+from solving import solve
+r = solve(air, timeout=20.0)     # None means no solve -- do NOT fall back
+```
+
+`solve_center.py` has always capped solves (`--solve-timeout`, default 20 s);
+the staleness check is the newer half. Ad-hoc scripts that call `start_solve`
+directly reimplement neither -- use the helper.
+
 ### Exposures over ~10 s need a keepalive
 
 The Air drops an **idle 4700 socket after ~15 s**. Fire `start_exposure`, wait in

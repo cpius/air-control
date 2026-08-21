@@ -63,6 +63,46 @@ JSON, so a full frame is millions of numbers and is slow — use binning or a
 subframe for anything interactive; for real captures the driver also serves the
 binary `imagebytes` form.
 
+## Planetary video — use the Air's own recorder
+
+The firmware records AVI to eMMC and supports a readout ROI. The commands are
+`start_record_avi` / `stop_record_avi` (**no parameters**) and `set_subframe` /
+`get_subframe` (`{x, y, width, height}` in sensor pixels), on page `"video"`.
+
+```bash
+python3 video.py --host <air-ip> --key embedded_key.pem \
+    --seconds 30 --exposure-ms 8 --gain 250 --roi 800x800
+```
+
+A small ROI is the whole point: `set_subframe` crops the **readout**, so the
+frames are full sensor resolution *and* fast, straight to eMMC. Pull the AVI
+afterwards from the SMB share (`//<air-ip>/EMMC Images`).
+
+Also on the same page: `start_planet_stack` / `stop_planet_stack` (on-device
+planetary stacking) and `set_rtmp_config` + `start_avi_rtmp` (live streaming).
+Progress arrives as `AviRecord` events carrying
+`{is_working, lapse_sec, fps, write_file_fps}`.
+
+**Do not probe for method names.** These were all missed by probing —
+`start_video`, `start_recording`, `start_video_record`, `set_roi` all return
+`103 method not found`, which looks exactly like the feature being absent. The
+app ships its own command table; `CMD_METHODS.tsv` in this repo is that table
+(289 commands, extracted from `com.zwoasi.kit.cmd.CmdMethod`). A `103` only
+tells you your guess was wrong.
+
+`video_preview_ser.py` (via `video.py --preview-ser`) is the fallback that
+records the 4800 preview to a SER client-side. Its ceiling is low — the preview
+is a fixed ~1472 px subsample of the sensor at ~1 fps on 2.4 GHz — so prefer
+the native recorder.
+
+`focus_monitor.py` is the focus companion: a passive live focus score
+(flux-weighted RMS radius, which unlike peak brightness does not lie when you
+change exposure or clip the core) that runs alongside the ASIAIR app.
+
+```bash
+python3 focus_monitor.py --host <air-ip> --key embedded_key.pem --arcsec-per-px 2.462
+```
+
 ## 3. Native RPC on 4700 — needs the RSA key
 
 Port 4700 is the channel the app uses for the main camera, focuser, filter wheel,
@@ -173,6 +213,56 @@ That is the only path that saves to eMMC and dithers between frames. The full
 shape, and the four details that each break it silently, are in
 [`RPC_METHODS.md`](RPC_METHODS.md) under *Autorun*.
 
+## 7. A camera the Air cannot see — Canon CCAPI over Wi-Fi
+
+ZWO removed DSLR support from the ASIAIR and never had mirrorless, so a Canon
+body is not a device the Air can be asked about. It is a **second imager on the
+same network**, driven directly. Everything above still applies unchanged — the
+mount, guiding, plate solving and telemetry do not care which sensor is taking
+the picture. The one part that does not carry over is the Air's own sequence
+runner (§6): it only drives ZWO sensors, so the exposure loop and the dithering
+have to be run client-side instead.
+
+`ccapi.py` speaks Canon's **Camera Control API** — plain HTTP, JSON in and out,
+no authentication, no SDK, stdlib only.
+
+```bash
+python3 ccapi.py discover                        # sweep the subnet
+python3 ccapi.py --host <cam-ip> probe           # endpoint map + capabilities
+python3 ccapi.py --host <cam-ip> info
+python3 ccapi.py --host <cam-ip> settings
+python3 ccapi.py --host <cam-ip> set iso 1600
+python3 ccapi.py --host <cam-ip> shoot --download frames/
+python3 ccapi.py --host <cam-ip> bulb 120 --download frames/
+```
+
+**Endpoints are discovered, not hardcoded.** `GET /ccapi` returns the complete
+endpoint map for the connected body and firmware. Which endpoints exist — and
+which API version each lives under — varies by model: the same call can be
+`ver100` on one body and `ver110` on another. The client reads the map on
+connect and resolves every request through it, keyed on the path suffix. So
+asking for something the body does not implement fails with a clear message
+instead of a bare 404, and `probe` prints what this particular camera can do.
+
+**CCAPI ships disabled**, behind a free developer registration: update the
+camera to the latest firmware, register at Canon's developer community, run
+their desktop activation tool to write an *enabler* file to the SD card, then
+connect the camera from the CCAPI entry that appears in its Wi-Fi menu. The
+camera displays its own URL once active. Nothing here can do that step for you.
+
+**Exposures past 30s need bulb**, which is `shutterbutton/manual` — full_press,
+wait, release — and needs the mode dial physically on M with `tv` set to bulb.
+Whether a body advertises that endpoint is exactly what `probe` answers; `bulb`
+checks for it, and preflights the dial and `tv`, rather than half-working. Bulb
+timing is host-side, so it carries network jitter — tens of milliseconds, which
+is irrelevant against a 120s sub. Under 30s, set a real `tv` and use `shoot`.
+
+A note on Wi-Fi bands: the EOS R50 is 2.4 GHz-only (802.11b/g/n), which is the
+same constraint the Air has — so both land on the same SSID and no extra network
+plumbing is needed. Set the camera's auto power off to **Disable** first. A body
+that sleeps drops its Wi-Fi association, and from the host side that is
+indistinguishable from a crash.
+
 ## 8. Logging — a line a second through anything slow
 
 Every tool in here talks to hardware over Wi-Fi, and the failures all look the
@@ -216,7 +306,7 @@ moves, with the position counting down; frame downloads on 4800, with
 throughput; exposures, counting the shutter and then the readout separately;
 guide calibration, by state; the pure-Python pixel work in `focus.py` and
 `starhunt.py`, by row; subnet sweeps and mDNS browses, by host; Canon bulb
-exposures, counting the open shutter down; and Alpaca HTTP requests.
+exposures, counting the open shutter down; and CCAPI and Alpaca HTTP requests.
 
 ## 9. Focus frames are written as they are taken
 
@@ -264,6 +354,7 @@ Verified by SIGKILL mid-sweep: three complete steps, raw buffers intact.
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
 | `smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
+| `ccapi.py` | Canon CCAPI client: control an EOS body over Wi-Fi (`discover`, `probe`, `settings`, `shoot`, `bulb`). Endpoint map is discovered, not hardcoded. |
 | `airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
 | `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
