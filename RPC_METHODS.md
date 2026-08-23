@@ -362,6 +362,14 @@ failure looks like a camera problem but the camera is fine. Poke any cheap read
 (`get_camera_state`) every ~4 s while waiting. Fixed in `starhunt.py`'s
 `Camera.grab`; 30 s and 60 s subs verified.
 
+**4400 does exactly the same thing**, which is easy to miss because the mount is
+usually called in bursts. Waiting on a 4800 download counts as idle on *both*
+sockets, and a full-field frame takes longer than the timeout — so the socket
+dies during the wait and the *next* mount call raises `BrokenPipeError` from
+somewhere unrelated. Anything long-running wants a background poke on both
+(`get_camera_state` on 4700, `scope_get_info` on 4400) and a reconnect rather
+than a raise. `session.py` does this.
+
 ### Polar alignment needs `set_page`
 
 `start_polar_align` takes a **bare object** (list-wrapping → `107`), and returns
@@ -455,6 +463,13 @@ across runs (`x_scale`, `y_scale` unchanged), and moves the focuser to a
 remembered position. Treat a bare `start_auto_focuse` as "replay the last
 result", not "measure focus".
 
+It does emit `AutoFocus start` -> `working` -> and then, if the **focus page's
+centre crop** holds no usable star, `{"state": "fail", "error": "no star is
+detected", "code": 279}` after ~18 s, having first walked the focuser back to
+where it started (`FocuserMove ... "reason": "Go back to the init position"`).
+The full field can have 900+ stars while that crop has none, so 279 says
+"nothing in the middle", not "bad sky".
+
 ### The `preview` page silently drops exposures — focus on the `focus` page
 
 On `set_page(["preview"])` the Air **plate-solves and annotates every frame**:
@@ -484,6 +499,54 @@ Two consequences for a client on the focus page:
   move**, and two after changing exposure or gain.
 
 Restore `set_page(["preview"])` when done.
+
+#### The two pages serve DIFFERENT FIELDS, not just different speeds
+
+This is the part that costs hours, because both pages can hand back a
+`1472x830` frame and nothing in the header distinguishes them:
+
+| page | frame off 4800 | field |
+|---|---|---|
+| `focus` | `1472x830` | a **1:1 centre crop** of the sensor |
+| `preview` | the full sensor, full resolution (`bin 2` quarters the download) | the whole field |
+
+Neither is subsampled — both are 1:1. Measured on an ASI585MC Air (3840x2160,
+2.9 um) at ~1266 mm: the focus page covers **11.6' x 6.5'** and the preview page
+**30.3' x 17.0'**, and a plate solve of each reports exactly those FOVs. That is
+the only reliable way to tell which page a frame came from.
+
+Two consequences:
+
+* **Focus can be measured on either page** — a focused star is not smeared by
+  the transport. An earlier reading of these frames as "the preview is a 2.6x
+  subsample, so focus cannot be measured there" was wrong; those were *stale
+  focus-page frames* the Air was still serving after a `set_page`. Always take
+  a verified-fresh frame after changing pages, and treat a `1472x830` frame on
+  the preview page as proof you are looking at the past.
+* **The focus page's crop can be empty** on a sparse field while the full field
+  has hundreds of stars — see `start_auto_focuse` above, which fails with
+  `279 "no star is detected"` for exactly this reason.
+
+### An abandoned capture wedges 4800 — `stop_exposure` first, always
+
+Start a capture, drop the connection or change pages without stopping it, and
+the Air gets stuck in a state nothing recovers from on its own:
+
+* `get_current_img` on 4800 returns the literal string
+  `there is no image now` — not an error frame, a short status payload — and
+  keeps returning it indefinitely.
+* The next `start_exposure` answers **206 `capture is active`**.
+* `get_camera_state` cheerfully reports `idle` throughout, so the one call you
+  would use to diagnose it says nothing is wrong.
+
+The whole fix is to make `stop_exposure` the first call of every setup
+sequence, before the page and the exposure settings:
+
+```
+stop_exposure -> set_page -> set_camera_bin -> set_control_value -> start_exposure
+```
+
+Skipping it costs an hour of believing the camera has failed.
 
 ### The 4800 header's `imageID` is a constant — check frames by content
 
