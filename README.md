@@ -213,57 +213,7 @@ That is the only path that saves to eMMC and dithers between frames. The full
 shape, and the four details that each break it silently, are in
 [`RPC_METHODS.md`](RPC_METHODS.md) under *Autorun*.
 
-## 7. A camera the Air cannot see — Canon CCAPI over Wi-Fi
-
-ZWO removed DSLR support from the ASIAIR and never had mirrorless, so a Canon
-body is not a device the Air can be asked about. It is a **second imager on the
-same network**, driven directly. Everything above still applies unchanged — the
-mount, guiding, plate solving and telemetry do not care which sensor is taking
-the picture. The one part that does not carry over is the Air's own sequence
-runner (§6): it only drives ZWO sensors, so the exposure loop and the dithering
-have to be run client-side instead.
-
-`ccapi.py` speaks Canon's **Camera Control API** — plain HTTP, JSON in and out,
-no authentication, no SDK, stdlib only.
-
-```bash
-python3 ccapi.py discover                        # sweep the subnet
-python3 ccapi.py --host <cam-ip> probe           # endpoint map + capabilities
-python3 ccapi.py --host <cam-ip> info
-python3 ccapi.py --host <cam-ip> settings
-python3 ccapi.py --host <cam-ip> set iso 1600
-python3 ccapi.py --host <cam-ip> shoot --download frames/
-python3 ccapi.py --host <cam-ip> bulb 120 --download frames/
-```
-
-**Endpoints are discovered, not hardcoded.** `GET /ccapi` returns the complete
-endpoint map for the connected body and firmware. Which endpoints exist — and
-which API version each lives under — varies by model: the same call can be
-`ver100` on one body and `ver110` on another. The client reads the map on
-connect and resolves every request through it, keyed on the path suffix. So
-asking for something the body does not implement fails with a clear message
-instead of a bare 404, and `probe` prints what this particular camera can do.
-
-**CCAPI ships disabled**, behind a free developer registration: update the
-camera to the latest firmware, register at Canon's developer community, run
-their desktop activation tool to write an *enabler* file to the SD card, then
-connect the camera from the CCAPI entry that appears in its Wi-Fi menu. The
-camera displays its own URL once active. Nothing here can do that step for you.
-
-**Exposures past 30s need bulb**, which is `shutterbutton/manual` — full_press,
-wait, release — and needs the mode dial physically on M with `tv` set to bulb.
-Whether a body advertises that endpoint is exactly what `probe` answers; `bulb`
-checks for it, and preflights the dial and `tv`, rather than half-working. Bulb
-timing is host-side, so it carries network jitter — tens of milliseconds, which
-is irrelevant against a 120s sub. Under 30s, set a real `tv` and use `shoot`.
-
-A note on Wi-Fi bands: the EOS R50 is 2.4 GHz-only (802.11b/g/n), which is the
-same constraint the Air has — so both land on the same SSID and no extra network
-plumbing is needed. Set the camera's auto power off to **Disable** first. A body
-that sleeps drops its Wi-Fi association, and from the host side that is
-indistinguishable from a crash.
-
-## 8. Logging — a line a second through anything slow
+## 7. Logging — a line a second through anything slow
 
 Every tool in here talks to hardware over Wi-Fi, and the failures all look the
 same from the outside: **a long silence**. A goto that is still slewing, a
@@ -305,10 +255,10 @@ second; slews and homing, with live RA/Dec; the site-location hold; focuser
 moves, with the position counting down; frame downloads on 4800, with
 throughput; exposures, counting the shutter and then the readout separately;
 guide calibration, by state; the pure-Python pixel work in `focus.py` and
-`starhunt.py`, by row; subnet sweeps and mDNS browses, by host; Canon bulb
-exposures, counting the open shutter down; and CCAPI and Alpaca HTTP requests.
+`starhunt.py`, by row; subnet sweeps and mDNS browses, by host; and Alpaca
+HTTP requests.
 
-## 9. Focus frames are written as they are taken
+## 8. Focus frames are written as they are taken
 
 `focus.py` commits **every frame to disk at the step**, not at the end of the
 run. Each step writes three files immediately:
@@ -354,7 +304,6 @@ Verified by SIGKILL mid-sweep: three complete steps, raw buffers intact.
 | `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
 | `smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
-| `ccapi.py` | Canon CCAPI client: control an EOS body over Wi-Fi (`discover`, `probe`, `settings`, `shoot`, `bulb`). Endpoint map is discovered, not hardcoded. |
 | `airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
 | `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
