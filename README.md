@@ -300,6 +300,27 @@ page into one self-contained HTML file; `weather.py` is the sky-conditions
 source (Open-Meteo + RainViewer) and works on its own too. `fake_air.py` and
 `demo_data.py` let you develop against the dashboard with no Air on the network.
 
+## 10. Horizon survey — what each balcony can actually see
+
+Plate solving as a classifier: a solve is proof of open sky, a fast fail with
+no stars is masonry. `ladder.py` bisects the roofline at one azimuth,
+`refine.py` tightens a known bracket, `skysurvey.py` takes the individual
+shots, and `make_horizon.py` / `survey_report.py` turn the JSONL into a
+horizon mask and an HTML map. The `queue_*.sh` scripts are the batches that
+were actually run.
+
+```bash
+python3 ladder.py --host <air-ip> --az 90 --lo 4 --hi 30      # find the roofline at az 90
+python3 survey_report.py                                       # render the map
+```
+
+Recovery and housekeeping tools in the same family: `recover.py` (bring the
+mount and cameras back after an Air restart), `restore_mount.py`,
+`resync.py`, `wifi.py` (force the 2.4 GHz band — 5 GHz drops mid-slew on the
+far balcony), `lock.py` (one client on the mount at a time), `sniff.py`,
+`capture_cal.py` and `darks_when_cold.sh`. The `guidefocus*.py` files are
+experiments in focusing the guide sensor and are kept for reference.
+
 ## Files
 
 | File | What it does |
@@ -326,6 +347,9 @@ source (Open-Meteo + RainViewer) and works on its own too. `fake_air.py` and
 | `snapshot.py` | Freeze the dashboard into one self-contained HTML file. |
 | `weather.py` | Sky conditions now and 30 min out (Open-Meteo, RainViewer), with dew-point and Moon/Sun altitude. |
 | `fake_air.py`, `demo_data.py` | A fake Air and synthetic data for developing the dashboard offline. |
+| `ladder.py`, `refine.py`, `skysurvey.py` | Horizon survey: solve-verified bisection of each roofline; `make_horizon.py` + `survey_report.py` render the mask and map. |
+| `recover.py`, `restore_mount.py`, `resync.py` | Bring the rig back after an Air restart or a lost pointing model. |
+| `wifi.py`, `lock.py` | Force the 2.4 GHz band; guarantee a single client on the mount. |
 | `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
 ## Safety notes
