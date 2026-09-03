@@ -67,7 +67,8 @@ binary `imagebytes` form.
 
 The firmware records AVI to eMMC and supports a readout ROI. The commands are
 `start_record_avi` / `stop_record_avi` (**no parameters**) and `set_subframe` /
-`get_subframe` (`{x, y, width, height}` in sensor pixels), on page `"video"`.
+`get_subframe` (`{x, y, width, height}` in sensor pixels), on page **`"rtmp"`**
+(the app's tag for the Video tab — `"video"` is rejected).
 
 ```bash
 python3 video.py --host <air-ip> --key embedded_key.pem \
@@ -75,8 +76,21 @@ python3 video.py --host <air-ip> --key embedded_key.pem \
 ```
 
 A small ROI is the whole point: `set_subframe` crops the **readout**, so the
-frames are full sensor resolution *and* fast, straight to eMMC. Pull the AVI
-afterwards from the SMB share (`//<air-ip>/EMMC Images`).
+frames are full sensor resolution *and* fast, straight to eMMC. The write rate
+is a flat ~15–20 Mpx/s whatever the exposure — measured from the AVI headers,
+not from the `write_file_fps` event, which is unreliable:
+
+| ROI | frames/s |
+|---|---|
+| 400×400 | 95 |
+| 512×512 | 50–70 |
+| 800×800 | 31 |
+| 1920×1080 | 6–8 |
+
+Order matters: entering the `rtmp` page resets the subframe and auto-starts
+capture, so set the ROI *after* the page switch, with capture stopped, and
+read `get_subframe` back to verify — `video.py` does. Pull the AVI afterwards
+from the SMB share (`//<air-ip>/EMMC%20Images`, the space encoded).
 
 Also on the same page: `start_planet_stack` / `stop_planet_stack` (on-device
 planetary stacking) and `set_rtmp_config` + `start_avi_rtmp` (live streaming).
@@ -321,6 +335,33 @@ far balcony), `lock.py` (one client on the mount at a time), `sniff.py`,
 `capture_cal.py` and `darks_when_cold.sh`. The `guidefocus*.py` files are
 experiments in focusing the guide sensor and are kept for reference.
 
+## 11. Planetary tracking — hold a planet centred while recording
+
+`planet_track.py` is a closed loop that keeps a planet on the sensor centre
+with timed joystick pulses at the 1× rate, at 1.5–2.8 Hz, and keeps doing it
+while the Air records: frame → centroid → error → `scope_move` pulse. It
+calibrates itself every run (direction signs flip with pier side; Dec backlash
+is ~12″ and is measured and compensated), and it can read the main camera on
+the `rtmp` page or the on-axis guide sensor.
+
+```bash
+python3 planet_track.py --host <air-ip> --source main --page focus --bin 2 --exp 0.05 --gain 100 --seconds 120
+python3 planet_track.py --host <air-ip> --source main --video-roi 512x512 --exp 0.015 --gain 250 --record 90
+```
+
+Proven on Saturn 2026-09-02: a 512×512 ROI at 15 ms recorded 4494 frames at
+49 fps while the loop held the planet to a median 9 px (4″), worst 17 px.
+
+Around it: `joyslew.py` (a register-closed-loop joystick slew for when goto
+is dead — chunked so the 4400 idle drop cannot lose a stop, with a detector
+for the mount's phantom register jumps), `drift.py` (a polar-alignment drift
+test from plate solves), `grab.py` (one frame to FITS), `centre_planet.py`
+(goto-based centring), and the focus tools `focusstar.py` (interleaved
+star sweep), `focus_planet.py` (V-curve on a planet's disc),
+`focus_blurscale.py` / `focus_texture.py` / `focus_descend.py` (lunar-surface
+metrics for finding focus from far out; note that the Air's 1472-wide frames
+keep the Bayer mosaic, so every metric folds 2×2 superpixels first).
+
 ## Files
 
 | File | What it does |
@@ -350,6 +391,12 @@ experiments in focusing the guide sensor and are kept for reference.
 | `ladder.py`, `refine.py`, `skysurvey.py` | Horizon survey: solve-verified bisection of each roofline; `make_horizon.py` + `survey_report.py` render the mask and map. |
 | `recover.py`, `restore_mount.py`, `resync.py` | Bring the rig back after an Air restart or a lost pointing model. |
 | `wifi.py`, `lock.py` | Force the 2.4 GHz band; guarantee a single client on the mount. |
+| `planet_track.py` | Closed-loop planet centring with joystick pulses, 1.5–2.8 Hz, runs during AVI recording. |
+| `joyslew.py` | Joystick slew closed on the mount register, chunked and capped, aborts on a register jump. |
+| `drift.py` | Polar-alignment drift test: plate-solve one field for N minutes, fit the Dec drift. |
+| `grab.py` | One fresh preview frame to a 16-bit FITS. |
+| `centre_planet.py`, `focusstar.py`, `focus_planet.py` | Goto-based centring; interleaved star focus sweep; V-curve focus on a planet's disc. |
+| `focus_blurscale.py`, `focus_texture.py`, `focus_descend.py` | Focus metrics on the lunar surface for when the image is a blur (superpixel-folded, cloud-tolerant). |
 | `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
 ## Safety notes
