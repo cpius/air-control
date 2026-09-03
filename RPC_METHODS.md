@@ -82,8 +82,48 @@ hours, Dec/Alt/Az in degrees.**
 
 ## Solve-and-center (these ARE on 4700, main channel)
 
-`start_auto_goto` (`[float,…]`) / `start_auto_goto_pixel` / `stop_auto_goto` —
+`start_auto_goto` (`[ra_h, dec_deg]` ✓) / `start_auto_goto_pixel` / `stop_auto_goto` —
 plate-solve-and-center, orchestrated from 4700 using the mount underneath.
+
+**This — not `scope_goto` — is what the app actually uses.** Wire capture of the
+iPad app doing a sky-atlas "goto Moon", 2026-08-23 (`scope_goto` appears
+**zero** times in the whole session):
+
+```
+set_page(["preview"])
+start_auto_goto([18.886525472005207, -27.674102783203125])
+set_app_setting([{"goto_target_ra": …, "goto_target_dec": …, "goto_target_name": "Moon"}])
+set_sequence_setting([{"target_coord": [ra_h, dec_deg]}])
+```
+
+The two `set_*` calls are bookkeeping fired *after* the goto starts; the slew
+itself is `start_auto_goto`, and it takes the same `[ra_h, dec_deg]` as
+`scope_goto`.
+
+**`route: []` is normal — it is not a failure signal.** The app's own working
+goto emits `{"Event":"AutoGoto","state":"working","lapse_ms":0,"count":0,"route":[]}`.
+An empty route was misread for a whole session as evidence the Air's planner had
+refused; the only real signal is the result code.
+
+### `300` / `501` — the mount refuses every goto (unresolved, 2026-08-23)
+
+Both entry points fail on firmware 43.97 / AM5N 1.8.6:
+
+* `scope_goto` (4400) -> `{"state":"fail","error":"internal error","code":300}` in ~42 ms
+* `start_auto_goto` (4700) -> five `AutoGotoStep` retries, each
+  `{"state":"fail","error":"mount goto failed","code":501}`, then
+  `AutoGoto state:"fail","error":"aborted","code":253`
+
+So this is **below both APIs** — the app cannot goto either. Ruled out by test:
+target altitude (high and low both fail), meridian side, slew distance (a 10°
+hop fails), tracking on/off, starting at the pole vs off it, a full re-home, an
+Air+mount cold power cycle, correct clocks set *before* homing, and detaching
+and re-attaching the mount driver. `scope_move`, `scope_park` and `scope_sync`
+all work normally, which hides the fault.
+
+Workarounds that do work: joystick via `scope_move`, and `scope_park`.
+Next thing to try is a mount-side reset/firmware reflash — stop looking for this
+in the protocol.
 
 ## Plate solve
 
@@ -305,7 +345,7 @@ because the names were guessed rather than read:
 | `get_planet_position` | |
 | `set_rtmp_config` / `get_rtmp_config` / `start_avi_rtmp` / `stop_avi_rtmp` | live streaming |
 
-Page is `"video"` (`set_page(["video"])`), alongside the known
+Page is **`"rtmp"`** (`set_page(["rtmp"])` — verified live 2026-09-02; `"video"` returns `unexpected param`). The app's `MenuBean` tags: preview / focus / autosave / pa / plan / **stack** (live) / **rtmp** (video). Alongside the known
 `preview` / `focus` / `autosave` / `pa` / `plan`. Events: `AviRecord`
 `{is_working, lapse_sec, fps, write_file_fps}`, `VideoCapture`, `PlanetStack`,
 `AviRtmp`.

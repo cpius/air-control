@@ -20,7 +20,7 @@ difference between Saturn on ~34 px and Saturn on ~89 px (or far more at
 
 Sequence:
 
-    set_page(["video"])            # the video tab; 'video' is a real page name
+    set_page(["rtmp"])             # the video tab: PAGE_VIDEO_TAG = "rtmp" in the app, NOT "video"
     set_subframe({x,y,w,h})        # optional ROI, in SENSOR pixels
     set_control_value Exposure/Gain
     start_exposure(["light"])      # free-run the camera
@@ -141,7 +141,7 @@ def main():
 
     rig.call("stop_exposure")
     time.sleep(0.5)
-    rig.call("set_page", ["video"])
+    rig.call("set_page", ["rtmp"])   # the video tab is tagged "rtmp" in the app (MenuBean.PAGE_VIDEO_TAG)
 
     if args.roi_full:
         rig.set_subframe(0, 0, chip[0], chip[1])
@@ -153,7 +153,20 @@ def main():
         else:
             w, h = (int(v) for v in args.roi.lower().split("x"))
             x, y = (chip[0] - w) // 2, (chip[1] - h) // 2
-        rig.set_subframe(x, y, w, h)
+        # The rtmp page auto-starts capture on entry and set_subframe then
+        # fails "capture is active" -- silently leaving the full frame, which
+        # records at 6-8 fps instead of 30-95 (2026-09-02). Stop, set, verify.
+        for attempt in range(4):
+            rig.call("stop_exposure")
+            time.sleep(0.6)
+            rig.set_subframe(x, y, w, h)
+            got, _ = rig.call("get_subframe")
+            if isinstance(got, dict) and got.get("width") == w and got.get("height") == h:
+                break
+            log.warn("subframe attempt %d did not stick: %s", attempt + 1, got)
+            time.sleep(0.5)
+        else:
+            raise SystemExit("could not apply the %dx%d subframe: %s" % (w, h, got))
     rig.call("get_subframe")
 
     rig.call("set_control_value", ["Exposure", exp_us])
