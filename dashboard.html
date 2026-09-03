@@ -1,0 +1,448 @@
+<!-- Served by dashboard.py. Talks only to /api/state and /img on the same origin;
+     the radar and basemap tiles are the sole outbound requests. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ASICAP rig</title>
+<style>
+:root{
+  --bg:#0b0e13; --panel:#141922; --panel2:#1b212c; --line:#26303f;
+  --ink:#dfe6f0; --dim:#8896aa; --faint:#5b6779;
+  --ok:#5ad48b; --warn:#f0b849; --bad:#ef6b6b; --live:#4ea8ff;
+  --mount:#7aa2f7; --camera:#9ece6a; --guide:#e0af68; --focuser:#bb9af7;
+  --solver:#7dcfff; --system:#8896aa; --app:#c0caf5; --other:#6b7688;
+}
+/* Night mode: red on black, to keep dark adaptation on the balcony. */
+html.night{ --bg:#000; --panel:#0d0403; --panel2:#150705; --line:#3a1410;
+  --ink:#ff8a70; --dim:#b4503c; --faint:#7a3527;
+  --ok:#ff7a55; --warn:#ff9a6a; --bad:#ff5a48; --live:#ff8a70;
+  --mount:#ff8a70; --camera:#ff8a70; --guide:#ff8a70; --focuser:#ff8a70;
+  --solver:#ff8a70; --system:#b4503c; --app:#ff8a70; --other:#7a3527; }
+html.night img, html.night .tile{ filter:grayscale(1) sepia(1) hue-rotate(-25deg) saturate(5) brightness(.75); }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+  margin:0;font-weight:600}
+a{color:var(--live)}
+
+header{position:sticky;top:0;z-index:20;background:var(--panel);
+  border-bottom:1px solid var(--line);padding:9px 14px;
+  display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.brand{font-weight:700;letter-spacing:.1em}
+.spacer{flex:1}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+  border-radius:5px;padding:4px 9px;font:inherit;font-size:11px;cursor:pointer}
+button:hover{border-color:var(--dim)}
+button.on{border-color:var(--live);color:var(--live)}
+
+.grid{display:grid;gap:12px;padding:12px;
+  grid-template-columns:repeat(auto-fit,minmax(370px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  padding:12px;min-width:0}
+.card.wide{grid-column:1/-1}
+.head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+.head .sub{color:var(--faint);font-size:11px;margin-left:auto;text-align:right}
+
+/* --- generic bits --- */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px}
+.kv dt{color:var(--dim)} .kv dd{margin:0}
+.big{font-size:26px;line-height:1.1;font-weight:700}
+.chip{display:inline-block;padding:0 6px;border-radius:4px;font-size:10px;
+  letter-spacing:.06em;text-transform:uppercase;border:1px solid currentColor}
+.stale{color:var(--warn)} .dead{color:var(--bad)}
+.empty{color:var(--faint);padding:18px 0;text-align:center;font-style:italic}
+.scroll{max-height:340px;overflow:auto;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th{position:sticky;top:0;background:var(--panel);color:var(--faint);
+  text-align:left;font-weight:500;padding:3px 6px;border-bottom:1px solid var(--line);
+  white-space:nowrap}
+td{padding:2px 6px;border-bottom:1px solid #ffffff08;vertical-align:top}
+tr:hover td{background:#ffffff06}
+.mono-dim{color:var(--faint)}
+.trunc{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  display:inline-block;vertical-align:bottom}
+
+/* --- weather --- */
+.verdict{padding:9px 12px;border-radius:7px;margin-bottom:10px;
+  border:1px solid currentColor;font-size:13px;display:flex;gap:10px;align-items:center}
+.v-clear,.v-steady{color:var(--ok)} .v-worsening,.v-closing{color:var(--warn)}
+.v-rain{color:var(--bad)} .v-clearing{color:var(--ok)} .v-unknown{color:var(--faint)}
+.wx{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:9px;
+  margin-bottom:10px}
+.wx div{background:var(--panel2);border-radius:6px;padding:7px 9px}
+.wx b{display:block;font-size:19px;font-weight:700;line-height:1.2}
+.wx span{color:var(--faint);font-size:10px;text-transform:uppercase;letter-spacing:.07em}
+.radar{position:relative;width:100%;justify-self:center;border-radius:7px;overflow:hidden;
+  background:#050709;aspect-ratio:1;max-width:330px;margin:0 auto}
+/* Each div holds ONE tile and occupies one cell of the grid. An earlier
+   version gave every div background-size:300% with a background-position
+   offset -- that trick only works when the image is the whole assembled grid,
+   and with one tile per div it showed a blown-up ninth of each tile. */
+.radar .tile{position:absolute;background-size:100% 100%;background-repeat:no-repeat}
+.radar .base{opacity:.78;filter:invert(1) grayscale(1) brightness(.92) contrast(.78)}
+.radar .frameset{position:absolute;inset:0;opacity:0;transition:opacity .18s}
+.radar .frameset.on{opacity:.78}
+.radar .site{position:absolute;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;
+  border:1.5px solid var(--live);border-radius:50%;
+  box-shadow:0 0 0 1px #000a, 0 0 9px var(--live)}
+.radar .site span{position:absolute;left:15px;top:-3px;font-size:9.5px;
+  letter-spacing:.06em;color:var(--live);text-shadow:0 0 4px #000}
+.radar .stamp{position:absolute;left:0;right:0;bottom:0;padding:3px 7px;
+  background:#000a;font-size:10.5px;display:flex;justify-content:space-between}
+
+/* --- focus --- */
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:5px}
+.strip figure{margin:0;flex:0 0 auto;text-align:center}
+.strip img{width:74px;height:74px;border-radius:4px;border:1px solid var(--line);
+  image-rendering:pixelated;display:block}
+.strip figcaption{font-size:9.5px;color:var(--faint);margin-top:2px}
+.strip .rej img{border-color:var(--bad);opacity:.45}
+.strip .best img{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok)}
+
+/* --- preview --- */
+.preview img{width:100%;border-radius:6px;border:1px solid var(--line);display:block}
+
+/* --- feedback --- */
+.devtabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.devtabs button{display:flex;gap:5px;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 auto}
+.ev{border-left:2px solid var(--line);padding:1px 0 1px 8px;margin-bottom:1px}
+.ev .n{font-weight:600}
+.ev .d{color:var(--dim)}
+.ev.noisy{opacity:.5}
+</style>
+
+<header>
+  <span class="brand">ASICAP</span>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="noisy">guide/status chatter</button>
+  <button id="night">night mode</button>
+  <button id="pause">pause</button>
+  <span id="clock" class="mono-dim"></span>
+</header>
+
+<div class="grid" id="grid">
+  <section class="card wide" id="c-sky">
+    <div class="head"><h2>Sky</h2><span class="sub" id="sky-sub"></span></div>
+    <div id="sky"></div>
+  </section>
+
+  <section class="card" id="c-focus">
+    <div class="head"><h2>Focus</h2><span class="sub" id="focus-sub"></span></div>
+    <div id="focus"></div>
+  </section>
+
+  <section class="card" id="c-preview">
+    <div class="head"><h2>Preview</h2><span class="sub" id="preview-sub"></span></div>
+    <div id="preview" class="preview"></div>
+  </section>
+
+  <section class="card wide" id="c-cmd">
+    <div class="head"><h2>Commands to the Air</h2><span class="sub" id="cmd-sub"></span></div>
+    <div class="scroll" id="cmd"></div>
+  </section>
+
+  <section class="card wide" id="c-fb">
+    <div class="head"><h2>Messages from the Air</h2><span class="sub" id="fb-sub"></span></div>
+    <div id="fb"></div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = (v, d = 0, dash = '—') =>
+  (v === null || v === undefined || Number.isNaN(v)) ? dash : Number(v).toFixed(d);
+const hhmm = t => t ? String(t).slice(11, 19) : '';
+const img = p => '/img?p=' + encodeURIComponent(p);
+
+let STATE = null, paused = false, showNoisy = false, dev = null;
+
+/* ---------------- sky ---------------- */
+function sky(w) {
+  if (!w || w.error && !w.current) return `<p class="empty">weather unavailable — ${esc(w?.error||'')}</p>`;
+  const c = w.current || {}, o = w.outlook || {}, s = w.sun || {}, m = w.moon || {};
+  const dewCls = {critical:'v-rain',warning:'v-worsening',clear:'v-clear'}[c.dew_risk] || '';
+  let h = `<div class="verdict v-${esc(o.verdict||'unknown')}">
+      <b>next 30 min</b><span>${esc(o.text||'no data')}</span></div>
+    <div class="wx">
+      <div><span>cloud</span><b>${num(c.cloud_cover)}%</b></div>
+      <div><span>dew spread</span><b class="${dewCls}">${num(c.dew_spread,1)}K</b></div>
+      <div><span>temp</span><b>${num(c.temperature,1)}°</b></div>
+      <div><span>wind</span><b>${num(c.wind)}</b></div>
+      <div><span>sun</span><b>${num(s.altitude)}°</b></div>
+      <div><span>moon</span><b>${m.up ? num(m.altitude)+'°' : 'down'}</b></div>
+    </div>
+    <div style="display:grid;gap:14px;align-items:start;
+                grid-template-columns:repeat(auto-fit,minmax(290px,1fr));">
+      <div>
+        ${cloudChart(w.series||[])}
+        <div class="kv" style="margin-top:12px">
+          <dt>dew</dt><dd>${esc(c.dew_risk||'?')} — heater ${
+            ['warning','critical'].includes(c.dew_risk)
+              ? 'earns its 6.2 W' : 'off saves 6.2 W'}</dd>
+          <dt>twilight</dt><dd>${esc(s.twilight||'?')}${
+            s.twilight==='nautical' ? ' — no astronomical dark at 55.7°N in summer' : ''}</dd>
+          <dt>moon</dt><dd>${num((m.illumination||0)*100)}% lit, az ${num(m.azimuth)}°${
+            m.up ? '' : ', below horizon'}</dd>
+          <dt>visibility</dt><dd>${num((c.visibility||0)/1000)} km${
+            c.gusts ? `, gusts ${num(c.gusts)} km/h` : ''}</dd>
+        </div>
+      </div>
+      ${radar(w.radar)}
+    </div>`;
+  return h;
+}
+
+function cloudChart(series) {
+  if (!series.length) return '';
+  const W = 620, H = 92, P = 22, n = series.length;
+  const x = i => P + i * (W - P - 8) / Math.max(1, n - 1);
+  const y = v => H - 16 - (v / 100) * (H - 30);
+  const pts = series.map((s, i) => [x(i), y(s.cloud ?? 0)]);
+  const area = `M${pts[0][0]},${H-16} ` + pts.map(p => `L${p[0]},${p[1]}`).join(' ')
+    + ` L${pts[n-1][0]},${H-16} Z`;
+  // Rain gets its own marks: a cloud line alone hides the thing that ends a night.
+  const rain = series.map((s, i) => (s.precip > 0.05)
+    ? `<rect x="${x(i)-2}" y="${H-16}" width="4" height="10" fill="var(--bad)"/>` : '').join('');
+  const ticks = series.map((s, i) => (i % 8 === 0)
+    ? `<text x="${x(i)}" y="${H-2}" fill="var(--faint)" font-size="9"
+         text-anchor="middle">${hhmm(s.time).slice(0,5)}</text>` : '').join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+    <line x1="${P}" x2="${W-8}" y1="${y(50)}" y2="${y(50)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <text x="2" y="${y(100)+4}" fill="var(--faint)" font-size="9">100%</text>
+    <text x="6" y="${y(0)+4}" fill="var(--faint)" font-size="9">0</text>
+    <path d="${area}" fill="var(--live)" opacity=".18"/>
+    <polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none"
+      stroke="var(--live)" stroke-width="1.6"/>
+    ${rain}${ticks}
+  </svg>`;
+}
+
+function radar(r) {
+  if (!r || !r.frames || !r.frames.length)
+    return `<div class="empty">radar unavailable${r&&r.error?' — '+esc(r.error):''}</div>`;
+  // Tiles arrive pre-positioned as percentages of the view, so basemap and
+  // radar can sit at different zooms and still line up. RainViewer caps radar
+  // at zoom 7; the basemap is drawn higher so place names stay legible.
+  const layer = (tiles, cls) => (tiles||[]).map(t =>
+    `<div class="tile ${cls}" style="background-image:url('${t.url}');`
+    + `left:${t.left}%;top:${t.top}%;width:${t.width}%;height:${t.height}%"></div>`
+  ).join('');
+  const frames = r.frames.map((f, k) =>
+    `<div class="frameset" data-k="${k}">${layer(f.tiles, 'fr')}</div>`).join('');
+  const [sx, sy] = r.site_pct || [50, 50];
+  return `<figure class="chart">
+    <figcaption>radar · ${r.km_across} km across · balcony centred</figcaption>
+    <div class="radar" id="radar">
+      ${layer(r.basemap, 'base')}${frames}
+      <div class="site" style="left:${sx}%;top:${sy}%"><span>here</span></div>
+      <div class="stamp"><span id="radar-t"></span><span id="radar-kind"></span></div>
+    </div></figure>`;
+}
+
+let radarTimer = null;
+function animateRadar(r) {
+  clearInterval(radarTimer);
+  if (!r || !r.frames || !r.frames.length) return;
+  const sets = document.querySelectorAll('#radar .frameset');
+  if (!sets.length) return;
+  let k = 0;
+  const tick = () => {
+    sets.forEach(s => s.classList.toggle('on', +s.dataset.k === k));
+    const f = r.frames[k];
+    const t = $('#radar-t'), kind = $('#radar-kind');
+    if (t) t.textContent = f.iso ? f.iso.slice(11) : '';
+    if (kind) {
+      kind.textContent = f.nowcast ? 'forecast +' : 'observed';
+      kind.style.color = f.nowcast ? 'var(--warn)' : 'var(--faint)';
+    }
+    k = (k + 1) % r.frames.length;
+  };
+  tick();
+  radarTimer = setInterval(tick, k === 0 ? 620 : 620);
+}
+
+/* ---------------- focus ---------------- */
+function focusPane(f) {
+  if (!f) return '<p class="empty">no focus run found</p>';
+  const good = f.steps.filter(s => s.width_px && !s.rejected);
+  return `${vcurve(f, good)}
+    <div class="kv" style="margin:8px 0">
+      <dt>best</dt><dd>${f.best ? `${f.best.position} @ ${num(f.best.width_px,2)} px`
+                                : '—'}${f.vertex ? ` &nbsp;<span class="mono-dim">parabola vertex ${f.vertex}</span>`:''}</dd>
+      <dt>steps</dt><dd>${f.n} (${f.rejected} rejected)</dd>
+      <dt>exposure</dt><dd>${num(good[0]?.exposure_s,1)}s @ gain ${good[0]?.gain ?? '—'}</dd>
+    </div>
+    <div class="strip">${f.steps.map(s => s.png ? `
+      <figure class="${s.rejected?'rej':''} ${f.best&&s.step===f.best.step?'best':''}">
+        <img src="${img(s.png)}" loading="lazy" alt="step ${s.step}">
+        <figcaption>${s.position}<br>${s.rejected ? esc(s.rejected) : num(s.width_px,2)+'px'}</figcaption>
+      </figure>` : '').join('')}</div>`;
+}
+
+function vcurve(f, good) {
+  if (good.length < 2) return '<p class="empty">not enough usable steps to plot</p>';
+  const W = 560, H = 170, L = 40, B = 26;
+  const xs = f.steps.map(s => s.position).filter(v => v != null);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const ws = good.map(s => s.width_px);
+  const y0 = Math.min(...ws) * 0.94, y1 = Math.max(...ws) * 1.04;
+  const X = v => L + (v - x0) / Math.max(1e-9, x1 - x0) * (W - L - 12);
+  const Y = v => H - B - (v - y0) / Math.max(1e-9, y1 - y0) * (H - B - 14);
+  const pts = good.map(s => [X(s.position), Y(s.width_px)]);
+  const rej = f.steps.filter(s => s.rejected).map(s =>
+    `<g stroke="var(--bad)" stroke-width="1.4">
+       <line x1="${X(s.position)-4}" y1="${H-B-4}" x2="${X(s.position)+4}" y2="${H-B-12}"/>
+       <line x1="${X(s.position)-4}" y1="${H-B-12}" x2="${X(s.position)+4}" y2="${H-B-4}"/></g>`).join('');
+  const vx = f.vertex != null && f.vertex >= x0 && f.vertex <= x1
+    ? `<line x1="${X(f.vertex)}" x2="${X(f.vertex)}" y1="10" y2="${H-B}"
+         stroke="var(--ok)" stroke-dasharray="3 3"/>
+       <text x="${X(f.vertex)+4}" y="18" fill="var(--ok)" font-size="10">${f.vertex}</text>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+    <line x1="${L}" x2="${W-12}" y1="${H-B}" y2="${H-B}" stroke="var(--line)"/>
+    <line x1="${L}" x2="${L}" y1="10" y2="${H-B}" stroke="var(--line)"/>
+    <text x="2" y="16" fill="var(--faint)" font-size="9">${num(y1,1)}px</text>
+    <text x="2" y="${H-B}" fill="var(--faint)" font-size="9">${num(y0,1)}</text>
+    <text x="${L}" y="${H-8}" fill="var(--faint)" font-size="9">${x0}</text>
+    <text x="${W-12}" y="${H-8}" fill="var(--faint)" font-size="9" text-anchor="end">${x1}</text>
+    ${vx}
+    <polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none"
+      stroke="var(--focuser)" stroke-width="1.6"/>
+    ${pts.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="2.6" fill="var(--focuser)"/>`).join('')}
+    ${rej}
+  </svg>`;
+}
+
+/* ---------------- commands ---------------- */
+function cmdPane(rows) {
+  if (!rows.length) return '<p class="empty">no commands recorded yet</p>';
+  const colour = {ok:'var(--ok)', error:'var(--bad)', pending:'var(--warn)',
+                  note:'var(--app)'};
+  return `<table><thead><tr>
+      <th>time</th><th>dev</th><th>method</th><th>params</th>
+      <th style="text-align:right">ms</th><th>result</th></tr></thead><tbody>
+    ${rows.slice().reverse().map(r => {
+      const st = r.state || 'ok';
+      const res = st === 'error'
+        ? `<span style="color:var(--bad)">${esc(r.error)} (${esc(r.code ?? '')})</span>`
+        : st === 'pending' ? '<span style="color:var(--warn)">no reply yet</span>'
+        : st === 'note' ? '' : `<span class="mono-dim">${esc(JSON.stringify(r.result)).slice(0,90)}</span>`;
+      return `<tr>
+        <td class="mono-dim">${hhmm(r.t)}</td>
+        <td><span style="color:var(--${esc(r.device)})">${esc(r.device)}</span></td>
+        <td style="color:${colour[st]}">${st==='note'?'▸ ':''}${esc(r.method)}</td>
+        <td class="mono-dim"><span class="trunc">${r.params!=null?esc(JSON.stringify(r.params)):''}</span></td>
+        <td style="text-align:right" class="mono-dim">${r.dt!=null?num(r.dt*1000):''}</td>
+        <td><span class="trunc">${res}</span></td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+/* ---------------- feedback ---------------- */
+function fbPane(s) {
+  const fb = s.feedback || {}, order = (s.device_order || []).filter(d => fb[d]);
+  const extra = Object.keys(fb).filter(d => !order.includes(d));
+  const devs = order.concat(extra);
+  if (!devs.length) return '<p class="empty">no messages from the Air yet</p>';
+  if (!dev || !fb[dev]) dev = devs[0];
+  const tabs = devs.map(d => `<button data-dev="${d}" class="${d===dev?'on':''}"
+      style="color:var(--${d})"><span class="dot"></span>${d}
+      <span class="mono-dim">${fb[d].length}</span></button>`).join('');
+  const rows = fb[dev].filter(e => showNoisy || !e.noisy);
+  const hidden = fb[dev].length - rows.length;
+  const body = rows.length ? rows.slice().reverse().map(e => `
+      <div class="ev ${e.noisy?'noisy':''}" style="border-left-color:var(--${dev})">
+        <span class="mono-dim">${hhmm(e.t)}</span>
+        <span class="n" style="color:var(--${dev})">${esc(e.event)}</span>
+        <span class="d">${esc(fmtData(e.data))}</span></div>`).join('')
+    : '<p class="empty">nothing here</p>';
+  return `<div class="devtabs">${tabs}</div>
+    ${hidden ? `<p class="mono-dim" style="margin:0 0 6px">${hidden} routine
+      ${esc(dev)} message${hidden>1?'s':''} hidden — “guide/status chatter” shows them</p>` : ''}
+    <div class="scroll">${body}</div>`;
+}
+
+function fmtData(d) {
+  if (d == null) return '';
+  if (typeof d !== 'object') return String(d);
+  return Object.entries(d).map(([k, v]) =>
+    `${k}=${typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(3)) : JSON.stringify(v)}`
+  ).join('  ').slice(0, 200);
+}
+
+/* ---------------- shell ---------------- */
+function render(s) {
+  STATE = s;
+  const age = s.log?.age_s;
+  const cls = age == null ? 'dead' : age > 300 ? 'dead' : age > 60 ? 'stale' : '';
+  const label = age == null ? 'no records'
+    : age < 60 ? `live · last message ${num(age)}s ago`
+    : `last message ${num(age/60,1)} min ago`;
+  $('#status').innerHTML = `<span class="chip ${cls}"
+    style="color:var(--${cls==='dead'?'bad':cls==='stale'?'warn':'ok'})">${label}</span>`;
+
+  $('#sky').innerHTML = sky(s.weather);
+  $('#sky-sub').textContent = s.weather?.fetched
+    ? 'open-meteo + rainviewer · ' + hhmm(s.weather.fetched) : '';
+  animateRadar(s.weather?.radar);
+
+  $('#focus').innerHTML = focusPane(s.focus);
+  $('#focus-sub').textContent = s.focus ? `${s.focus.name} · ${hhmm(s.focus.mtime)}` : '';
+
+  $('#preview').innerHTML = s.preview
+    ? `<img src="${img(s.preview.path)}&t=${encodeURIComponent(s.preview.t||'')}"
+         alt="most recent frame">
+       <div class="kv" style="margin-top:8px">
+         <dt>file</dt><dd class="trunc">${esc(s.preview.path.split('/').pop())}</dd>
+         ${s.preview.meta ? Object.entries(s.preview.meta).map(([k,v])=>
+           `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') : ''}
+       </div>`
+    : '<p class="empty">no preview frame yet</p>';
+  $('#preview-sub').textContent = s.preview ? hhmm(s.preview.t) : '';
+
+  $('#cmd').innerHTML = cmdPane(s.commands || []);
+  $('#cmd-sub').textContent = `${(s.commands||[]).length} shown · `
+    + `${(s.commands||[]).filter(c=>c.state==='error').length} errors`;
+
+  $('#fb').innerHTML = fbPane(s);
+  const tot = Object.values(s.event_counts||{}).reduce((a,b)=>a+b,0);
+  $('#fb-sub').textContent = `${tot} messages · ${s.log?.rows||0} log rows`;
+  // Re-bound on every render, since fbPane replaces the buttons each time.
+  document.querySelectorAll('#fb .devtabs button').forEach(b =>
+    b.onclick = () => { dev = b.dataset.dev; render(STATE); });
+}
+
+async function poll() {
+  $('#clock').textContent = new Date().toTimeString().slice(0, 8);
+  if (paused) return;
+  try {
+    const r = await fetch('/api/state', {cache: 'no-store'});
+    render(await r.json());
+  } catch (e) {
+    $('#status').innerHTML = '<span class="chip dead" style="color:var(--bad)">'
+      + 'dashboard cannot reach its own server</span>';
+  }
+}
+
+$('#night').onclick = e => {
+  document.documentElement.classList.toggle('night');
+  e.target.classList.toggle('on', document.documentElement.classList.contains('night'));
+  localStorage.night = document.documentElement.classList.contains('night') ? '1' : '';
+};
+$('#noisy').onclick = e => {
+  showNoisy = !showNoisy; e.target.classList.toggle('on', showNoisy);
+  if (STATE) render(STATE);
+};
+$('#pause').onclick = e => {
+  paused = !paused; e.target.classList.toggle('on', paused);
+  e.target.textContent = paused ? 'paused' : 'pause';
+};
+if (localStorage.night) $('#night').click();
+
+poll();
+setInterval(poll, 5000);
+setInterval(() => $('#clock').textContent = new Date().toTimeString().slice(0, 8), 1000);
+</script>

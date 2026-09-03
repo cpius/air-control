@@ -38,6 +38,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from airlog import add_log_args, configure_logging, get_logger
+from recorder import rec, classify as rec_classify
 
 log = get_logger("rpc")
 
@@ -207,6 +208,7 @@ class Air:
                               json.dumps({k: v for k, v in msg.items()
                                           if k not in ("Event", "Timestamp")},
                                          ensure_ascii=False)[:200])
+                rec.event(self.port, msg)           # dashboard tap
                 self._events.put(msg)
         self._alive = False
         # A close WE asked for is unremarkable; one the Air did is a finding --
@@ -231,6 +233,9 @@ class Air:
         log.trace("-> #%d %s %s", rid, method,
                   json.dumps(params, ensure_ascii=False)[:160] if params else "")
         self.sock.sendall((json.dumps(req) + "\r\n").encode())
+        # Dashboard tap. Every tool in this directory sends through here, so
+        # this one line is the whole command log. rec never raises.
+        rec.cmd(self.port, rid, method, params)
         return rid, slot
 
     def call(self, method, params=None, timeout=15):
@@ -253,6 +258,9 @@ class Air:
         dt = time.time() - t0
         if not got:
             log.warn("no reply to %r on %d within %ss", method, self.port, timeout)
+            rec.write(kind="reply", port=self.port, id=rid, method=method,
+                      dt=round(dt, 3), ok=False, error="timeout",
+                      device=rec_classify(name=method, port=self.port))
             raise TimeoutError(f"no reply to {method!r} within {timeout}s")
         rep = slot[1]
         if isinstance(rep, dict) and rep.get("error"):
@@ -262,6 +270,7 @@ class Air:
             log.trace("<- #%d %s in %.2fs: %s", rid, method, dt,
                       json.dumps(rep.get("result") if isinstance(rep, dict) else rep,
                                  ensure_ascii=False)[:200])
+        rec.reply(self.port, rid, method, rep, dt)      # dashboard tap
         return rep
 
     def drain_events(self):

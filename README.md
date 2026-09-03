@@ -284,6 +284,22 @@ Verified by SIGKILL mid-sweep: three complete steps, raw buffers intact.
 `--images DIR` picks the directory, `--no-raw` keeps the PNGs but drops the
 2.4 MB raw dumps, `--no-images` turns it off entirely.
 
+## 9. Dashboard — every command and event on one page
+
+`dashboard.py` serves a single page (weather, latest focus run, latest preview,
+every command sent to the Air, every message from it split by subsystem) for
+watching the rig from a phone on the balcony:
+
+```bash
+python3 dashboard.py --bind 0.0.0.0        # http://<laptop-ip>:8765
+```
+
+Recording is automatic: `recorder.py` is tapped into `air_rpc.Air`, so every
+tool in this directory feeds the log without changes. `snapshot.py` freezes the
+page into one self-contained HTML file; `weather.py` is the sky-conditions
+source (Open-Meteo + RainViewer) and works on its own too. `fake_air.py` and
+`demo_data.py` let you develop against the dashboard with no Air on the network.
+
 ## Files
 
 | File | What it does |
@@ -305,6 +321,11 @@ Verified by SIGKILL mid-sweep: three complete steps, raw buffers intact.
 | `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
 | `smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
 | `airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
+| `dashboard.py` | Live rig dashboard on :8765 — weather, focus, preview, commands out, messages in by subsystem. |
+| `recorder.py` | The tap inside `air_rpc.Air` that writes every command/reply/event to `dashboard/data/*.jsonl`. |
+| `snapshot.py` | Freeze the dashboard into one self-contained HTML file. |
+| `weather.py` | Sky conditions now and 30 min out (Open-Meteo, RainViewer), with dew-point and Moon/Sun altitude. |
+| `fake_air.py`, `demo_data.py` | A fake Air and synthetic data for developing the dashboard offline. |
 | `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
 ## Safety notes

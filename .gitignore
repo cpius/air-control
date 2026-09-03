@@ -14,3 +14,6 @@ __pycache__/
 test.json
 # Your own observing data, not code — focusdb.py writes this.
 focus-points.json
+
+# Editor/backup copies
+*.bak
