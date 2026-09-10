@@ -11,6 +11,7 @@ __pycache__/
 
 # Captured frames / scratch output
 *.fits
+frames/
 test.json
 # Your own observing data, not code — focusdb.py writes this.
 focus-points.json
