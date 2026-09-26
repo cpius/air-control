@@ -49,7 +49,9 @@ def blobs(img, nsig=8.0, top=8):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--star", default="vega")
+    ap.add_argument("--star", default="vega", help="name from STARS, or use --ra/--dec")
+    ap.add_argument("--ra", type=float, default=None, help="JNow hours (planets: from Horizons), overrides --star")
+    ap.add_argument("--dec", type=float, default=None, help="JNow degrees")
     ap.add_argument("--eaf", type=int, default=44956)
     ap.add_argument("--home", action="store_true")
     ap.add_argument("--goto", action="store_true")
@@ -58,7 +60,7 @@ if __name__ == "__main__":
     ap.add_argument("--frames", type=int, default=1)
     ap.add_argument("--tag", default="find")
     a = ap.parse_args()
-    ra0, de0 = STARS[a.star]; ra, de = jnow(ra0, de0)
+    ra, de = (a.ra, a.dec) if a.ra is not None else jnow(*STARS[a.star])
     m = Mount(host())
     st = m.state()
     lst = st["sidereal_time"]; ha = ((lst - ra + 12) % 24) - 12

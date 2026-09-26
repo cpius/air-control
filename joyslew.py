@@ -1,153 +1,137 @@
 #!/usr/bin/env python3
-"""Slew with the joystick, closed-loop on the mount register, for when goto is
-dead (2026-08-27, 2026-09-03: `scope_goto` returns 0 in 57 ms with an empty
-route and nothing moves, while `scope_move` works and the register follows it).
+"""Closed-loop joystick slew to register RA/Dec -- for when scope_goto is dead (300).
 
-Safety rules learned the hard way tonight:
-  * 4400 drops an idle socket at ~15 s. A pulse longer than that loses its
-    stop and the mount runs away (it ran ~30 s / 3.6 deg once). Pulses are
-    chunked at <= 4 s with a register read in between.
-  * A script killed mid-pulse leaves the joystick running. Every exit path
-    sends scope_move ["none"]; there is also a hard wall-clock cap.
-  * The 20x rate moves ~5'/s for 2 s pulses but ~10'/s for long ones (ramp),
-    so the rate is re-estimated from every chunk instead of assumed.
-  * Sky coordinates go in as explicit numbers; never trust a column index.
+    ASIAIR_HOST=192.168.1.36 python3 -u joyslew.py --ra 21.06 --dec -19.33 --min-alt 7
 
-    python3 joyslew.py --ra 3.2637 --dec 22.89          # JNow/apparent, hours & degrees
-    python3 joyslew.py --ra 3.2637 --dec 22.89 --tol 1.0 --max-minutes 6
+Drives one axis at a time with timed scope_move chunks (<= --chunk s, stop in a
+finally), re-reading the register after every chunk. Nothing is assumed:
+  * the direction->sign mapping is measured per axis on the first chunk and
+    re-measured whenever pier_side changes (it flips -- mount-direction-sign-flips);
+  * at the pole both Dec directions lower Dec, so the first Dec move picks the
+    direction that RAISES altitude (over the zenith, not down into the north);
+  * the rate is re-estimated from every chunk, not taken from the index;
+  * a chunk that "moves" > 3x what the rate predicts (+0.5 deg) aborts: the
+    register teleports in the dead-goto state (goto-is-broken-below-the-api);
+  * altitude below --min-alt aborts; so does --max-seconds of wall clock.
+Dec first (big sweeps along the meridian), then RA. Coarse at MAX/2, fine at 20x.
 """
-import argparse
-import math
-import os
-import sys
-import time
-
+import argparse, math, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from air_rpc import Air
+from joystick import Joystick
 
-CHUNK = 4.0
+ap = argparse.ArgumentParser()
+ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"))
+ap.add_argument("--ra", type=float, required=True, help="target register RA, hours (JNow)")
+ap.add_argument("--dec", type=float, required=True, help="target register Dec, degrees")
+ap.add_argument("--tol", type=float, default=2.0, help="arrival tolerance per axis, arcmin")
+ap.add_argument("--min-alt", type=float, default=7.0, help="abort below this register altitude")
+ap.add_argument("--chunk", type=float, default=3.0, help="longest single scope_move, s")
+ap.add_argument("--coarse-rate", type=int, default=6, help="slew-rate index for big moves (6=MAX/2)")
+ap.add_argument("--fine-rate", type=int, default=4, help="slew-rate index for the last --fine-below deg (4=20x)")
+ap.add_argument("--fine-below", type=float, default=0.4, help="switch to the fine rate below this error, deg")
+ap.add_argument("--max-seconds", type=float, default=300.0)
+a = ap.parse_args()
 
+T0 = time.time()
+def log(s): print("%s +%5.1fs %s" % (time.strftime("%H:%M:%S"), time.time() - T0, s), flush=True)
 
-class Joy:
-    def __init__(self, host):
-        self.host = host
-        self.m = Air(host, 4400, timeout=10)
+def errs(st):
+    dra_h = ((a.ra - st["RA"] + 12.0) % 24.0) - 12.0
+    return dra_h * 15.0 * math.cos(math.radians(a.dec)), a.dec - st["Dec"]   # on-sky deg
 
-    def c(self, meth, p=None):
-        for i in range(3):
-            try:
-                return self.m.call(meth, p or [], timeout=15)
-            except Exception:
-                try:
-                    self.m.close()
-                except Exception:
-                    pass
-                time.sleep(0.5)
-                self.m = Air(self.host, 4400, timeout=10)
-        raise RuntimeError(meth)
+j = Joystick(a.host)
+AX = {"dec": ("north", "south"), "ra": ("east", "west")}
+sign = {}              # (axis, pier) -> +1 if AX[axis][0] increases the coordinate
+rate = {}              # rate index -> deg/s estimate
+cur_rate = [None]
 
-    def state(self):
-        return self.c("scope_get_info")["result"]
+def set_rate(idx):
+    if cur_rate[0] != idx:
+        j.set_rate(idx); time.sleep(0.3); cur_rate[0] = idx
 
-    def stop(self):
-        try:
-            self.c("scope_move", ["none"])
-        except Exception:
-            pass
+def show(st, tag=""):
+    e_ra, e_dec = errs(st)
+    log("%-10s RA %.4fh Dec %+8.3f  Alt %5.2f Az %6.2f  pier %-7s err RA %+7.1f' Dec %+7.1f'"
+        % (tag, st["RA"], st["Dec"], st["Alt"], st["Az"], st["pier_side"], e_ra * 60, e_dec * 60))
 
-    def chunk(self, direction, seconds):
-        """One pulse of <= CHUNK seconds. Returns (dRA_deg, dDec_deg) it produced."""
-        seconds = min(CHUNK, max(0.2, seconds))
-        s0 = self.state()
-        self.c("scope_move", [direction])
-        time.sleep(seconds)
-        self.c("scope_move", ["none"])
-        time.sleep(0.6)
-        s1 = self.state()
-        return (s1["RA"] - s0["RA"]) * 15 * math.cos(math.radians(s1["Dec"])), s1["Dec"] - s0["Dec"], seconds
-
-
-def slew(joy, ra_h, dec_d, tol_arcmin=1.5, max_minutes=8.0, rate_index=4, log=print):
-    """Return the final state, or raise. Closed loop on the register."""
-    t_end = time.time() + max_minutes * 60
-    saved = joy.state().get("slew_rate_index")
-    joy.c("scope_set_slew_rate", [int(rate_index)])
-    # deg/s estimates, refined from every chunk; start conservative
-    rate = {"ra": 5.0 / 60, "dec": 5.0 / 60}
-    sign = {"ra": None, "dec": None}     # measured: does "east" raise RA? does "south" raise Dec?
+def chunk(axis, direction, secs, idx):
+    set_rate(idx)
+    b = j.state()
+    j.move(direction)
+    t = time.time()
     try:
-        it = 0
-        while time.time() < t_end:
-            st = joy.state()
-            dra = (ra_h - st["RA"]) * 15 * math.cos(math.radians(st["Dec"]))
-            ddec = dec_d - st["Dec"]
-            log("iter %d: RA %.4fh Dec %+.4f  alt %.1f  need %+.1f' RA %+.1f' Dec" % (
-                it, st["RA"], st["Dec"], st["Alt"], dra * 60, ddec * 60))
-            if abs(dra) * 60 < tol_arcmin and abs(ddec) * 60 < tol_arcmin:
-                return st
-            if st["Alt"] < 5:
-                raise RuntimeError("altitude %.1f -- refusing to continue" % st["Alt"])
-            for axis, err, pos_dir, neg_dir in (("ra", dra, "east", "west"), ("dec", ddec, "south", "north")):
-                if abs(err) * 60 < tol_arcmin:
-                    continue
-                want = pos_dir if err > 0 else neg_dir
-                if sign[axis] is False:          # measured reversed on this pier side
-                    want = neg_dir if err > 0 else pos_dir
-                # Overshoot killed the first Hamal run (2026-09-03, 60x): a rate
-                # learned from short ramp-limited chunks underestimates the
-                # sustained speed, so a long pulse overshoots by 2-3x. Learn the
-                # rate as the MAX seen and never command more than 60% of the error.
-                secs = abs(err) / rate[axis] * 0.6
-                mra, mdec, secs = joy.chunk(want, secs)
-                moved = mra if axis == "ra" else mdec
-                # Register jump detector (2026-09-03): in the dead-goto state the
-                # AM5N's reported position jumped ~3 deg mid-pulse three times in a
-                # night. A 20x chunk can move at most ~1 deg; a 60x chunk ~3 deg.
-                other = mdec if axis == "ra" else mra
-                cap = 0.25 * secs * (1.0 if rate_index <= 4 else 4.0) + 0.2   # deg
-                if abs(moved) > cap or abs(other) > 0.3:
-                    raise RuntimeError("register jump: %s pulse of %.1fs 'moved' %+.2f deg (other axis %+.2f) -- "
-                                       "mount bookkeeping is wedged, power-cycle it and solve" % (axis, secs, moved, other))
-                if abs(moved) * 60 > 0.3:
-                    rate[axis] = max(rate[axis], abs(moved) / secs)
-                    went_positive = moved > 0
-                    commanded_positive = (want == pos_dir)
-                    sign[axis] = (went_positive == commanded_positive) if sign[axis] is None else sign[axis]
-                    if went_positive != (err > 0):
-                        # moved the wrong way: flip our idea of this axis' sign
-                        sign[axis] = not (sign[axis] if sign[axis] is not None else True)
-                        log("   %s moved the wrong way (%+.1f') -- flipping direction sense" % (axis, moved * 60))
-            it += 1
-        raise RuntimeError("wall-clock cap reached")
+        while time.time() - t < secs:
+            time.sleep(0.02)
     finally:
-        joy.stop()
-        if saved is not None:
-            try:
-                joy.c("scope_set_slew_rate", [int(saved)])
-            except Exception:
-                pass
+        j.stop()
+    time.sleep(0.6)
+    s = j.state()
+    if s["Alt"] < a.min_alt:
+        show(s, "ABORT")
+        raise SystemExit("altitude %.2f below --min-alt %.1f -- stopped" % (s["Alt"], a.min_alt))
+    d_ra = (((s["RA"] - b["RA"] + 12) % 24) - 12) * 15 * math.cos(math.radians(s["Dec"]))
+    moved = s["Dec"] - b["Dec"] if axis == "dec" else d_ra
+    other = d_ra if axis == "dec" else s["Dec"] - b["Dec"]
+    exp = rate.get(idx)
+    if exp and abs(moved) > 3 * exp * secs + 0.5:
+        show(s, "JUMP?")
+        raise SystemExit("register moved %.2f deg for an expected %.2f -- register jump, aborting"
+                         % (moved, exp * secs))
+    r = abs(moved) / secs
+    rate[idx] = r if idx not in rate else 0.5 * rate[idx] + 0.5 * r
+    log("  %s %-5s %.2fs @%d: moved %+.3f deg (cross-axis %+.3f), rate ~%.3f deg/s"
+        % (axis, direction, secs, idx, moved, other, rate[idx]))
+    return b, s, moved
 
+def drive(axis):
+    while True:
+        if time.time() - T0 > a.max_seconds:
+            raise SystemExit("wall-clock cap %.0fs reached" % a.max_seconds)
+        st = j.state()
+        e_ra, e_dec = errs(st)
+        err = e_dec if axis == "dec" else e_ra
+        show(st, axis)
+        if abs(err) * 60 < a.tol:
+            return st
+        idx = a.coarse_rate if abs(err) > a.fine_below else a.fine_rate
+        key = (axis, st["pier_side"])
+        if key not in sign:
+            probe = AX[axis][0]
+            if axis == "dec" and st["Dec"] > 88.0:
+                # pole: both directions lower Dec; the right one raises Alt
+                b, s, moved = chunk(axis, probe, 1.0, idx)
+                if s["Alt"] < b["Alt"] and err < 0:
+                    log("  '%s' from the pole LOWERS alt (toward the north horizon) -- using '%s'"
+                        % (probe, AX[axis][1]))
+                    chunk(axis, AX[axis][1], 1.0, idx)      # undo
+                    sign[key] = +1          # so err<0 picks AX[1] below
+                else:
+                    sign[key] = -1 if moved < 0 else +1
+                    if err < 0: sign[key] = -1   # probe lowered Dec and raised alt: keep it
+                continue
+            b, s, moved = chunk(axis, probe, 1.0, idx)
+            if abs(moved) < 1e-4:
+                raise SystemExit("%s '%s' moved nothing -- mount not responding" % (axis, probe))
+            sign[key] = 1 if moved > 0 else -1
+            log("  sign: '%s' %s %s at pier %s" % (probe, "raises" if moved > 0 else "lowers",
+                                                   axis.upper(), st["pier_side"]))
+            continue
+        want_up = err > 0
+        direction = AX[axis][0] if (sign[key] > 0) == want_up else AX[axis][1]
+        r = rate.get(idx)
+        secs = a.chunk if not r else max(0.3, min(a.chunk, 0.85 * abs(err) / r))
+        b, s, moved = chunk(axis, direction, secs, idx)
+        if abs(moved) > 1e-4 and (moved > 0) != want_up:
+            log("  WRONG WAY (%+.3f deg) -- re-measuring sign" % moved)
+            sign.pop(key, None)
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
-                    required="ASIAIR_HOST" not in os.environ,
-                    help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--ra", type=float, required=True, help="hours, apparent/JNow")
-    ap.add_argument("--dec", type=float, required=True, help="degrees")
-    ap.add_argument("--tol", type=float, default=1.5, help="arcmin")
-    ap.add_argument("--max-minutes", type=float, default=8.0)
-    ap.add_argument("--rate", type=int, default=4, help="slew_rate_list index (4 = 20x)")
-    a = ap.parse_args()
-    joy = Joy(a.host)
-    try:
-        st = slew(joy, a.ra, a.dec, a.tol, a.max_minutes, a.rate)
-        print("arrived: RA %.4fh Dec %+.4f alt %.1f az %.1f" % (st["RA"], st["Dec"], st["Alt"], st["Az"]))
-    finally:
-        joy.stop()
-        joy.m.close()
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+try:
+    show(j.state(), "start")
+    if not j.state().get("is_enable_track"):
+        log("WARNING: tracking is OFF")
+    drive("dec")
+    drive("ra")
+    st = drive("dec")          # RA moves leak a little Dec
+    show(st, "ARRIVED")
+finally:
+    j.close()
