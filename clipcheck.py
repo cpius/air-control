@@ -10,11 +10,19 @@ AVI, each run through planetdetect.detect().
 Two modes.
 
 On the Air, after a clip (what satloop.sh runs). Mounts the guest share
-read-only, takes the newest AVI in Video/ named at or after --since, and reads it
-in place -- nothing is copied, so the root-only 'arch' flag on the Air's files
-never matters. Exit 0 planet, 2 empty or no new clip, 3 partial, 1 could not check.
+read-only, takes the newest AVI in Video/ named at or after --since (and at or
+before --until), and reads it in place -- nothing is copied, so the root-only
+'arch' flag on the Air's files never matters. Exit 0 planet, 2 empty or no new
+clip, 3 partial, 1 could not check.
 
     python3 -u clipcheck.py --air --host 192.168.1.35 --since 2026-09-17-003217
+    python3 -u clipcheck.py --air --since 2026-09-26-233400 --until 2026-09-26-234500   # not the clip being recorded
+
+The thumbnail is the clip's FIRST frame, written when recording starts, so it says
+nothing about what the file holds. PLANET needs the planet in at least --min-blocks
+(2) readable block means; with no block readable the verdict is UNCHECKED whatever
+the thumbnail shows. (2026-09-26 23:49: a clip still being recorded, no frame
+readable anywhere in it, passed as PLANET on its thumbnail alone.)
 
 Pulled files, every frame (validation). With --expect, PASS/FAIL per clip and
 exit 0 only if every clip matches:
@@ -71,6 +79,7 @@ class Clip:
             self.count = None
         self.fb = self.width * self.height
         self._offsets = None
+        self.on_scan = None     # called with the file offset as _resync reads each window (heartbeats)
         self.chunk = re.compile(rb"00d[bc]" + re.escape(struct.pack("<I", self.fb)))
 
     def close(self):
@@ -89,6 +98,8 @@ class Clip:
         so pixel bytes that happen to spell '00db' are not taken for a header."""
         win = 4 << 20
         while pos < self.size:
+            if self.on_scan:
+                self.on_scan(pos)
             self.f.seek(pos)
             buf = self.f.read(win + 8)
             for m in self.chunk.finditer(buf):
@@ -215,13 +226,14 @@ def check_file(path, a):
 def summarise(r, expect):
     n, k = r["frames"], r["planet"]
     blocks_ok = sum(1 for _f, _g, d in r["blocks"] if d is not None and d.ok)
+    unreadable = sum(1 for _f, got, _d in r["blocks"] if not got)
     parts = ["%s  planet in %d/%d frames (%.1f%%)" % (r["short"], k, n, 100.0 * k / max(n, 1))]
     if k:
         parts.append("SNR min %.0f median %.0f, area min %d median %d px" % (
             min(r["snr"]), float(np.median(r["snr"])), min(r["area"]), int(np.median(r["area"]))))
     if k < n:
         parts.append("rejected frames peak at SNR %.1f, %.1f counts, %d px" % (r["rej_snr"], r["rej_amp"], r["rej_area"]))
-    parts.append("%d-frame means %d/%d" % (a.block, blocks_ok, len(r["blocks"])))
+    parts.append("%d-frame means %d/%d%s" % (a.block, blocks_ok, len(r["blocks"]), " (%d unreadable)" % unreadable if unreadable else ""))
     th = r["thumb"]
     parts.append("thumbnail %s" % ("-" if th is None else ("planet" if th.ok else "empty")))
     ok = None
@@ -261,19 +273,48 @@ def ensure_mount(a, force=False):
 NAME_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{6})-.*\.avi$", re.I)
 
 
-def newest_clip(folder, since, skew, exclude=()):
-    """(newest AVI named at or after since-skew and not in exclude, newest AVI of all)."""
+def stamp(s):
+    """argparse type for --since/--until: names are compared as text, so a malformed
+    bound would silently match nothing (and read as 'no new clip')."""
+    time.strptime(s, "%Y-%m-%d-%H%M%S")
+    return s
+
+
+def newest_clip(folder, since, skew, exclude=(), until=None):
+    """(newest AVI named at or after since-skew, at or before until (as named, no
+    skew) and not in exclude; newest AVI of all)."""
     lo = time.strftime("%Y-%m-%d-%H%M%S", time.localtime(time.mktime(time.strptime(since, "%Y-%m-%d-%H%M%S")) - skew))
     avis = sorted((n for n in os.listdir(folder) if NAME_TS.match(n)), key=lambda n: NAME_TS.match(n).group(1))
-    names = [n for n in avis if NAME_TS.match(n).group(1) >= lo and n not in exclude]
+    names = [n for n in avis if NAME_TS.match(n).group(1) >= lo and (until is None or NAME_TS.match(n).group(1) <= until)
+             and n not in exclude]
     return (names[-1] if names else None), (avis[-1] if avis else None)
+
+
+def air_verdict(name, thumb, blocks, sampled, min_blocks):
+    """(exit code, VERDICT line). thumb: the thumbnail's detection verdict, None if
+    there was none; blocks: the verdict of each block mean that could be read, out
+    of `sampled`. The thumbnail alone never makes a verdict (module docstring)."""
+    n = len(blocks)
+    read = "%d of %d blocks readable" % (n, sampled)
+    th = "no thumbnail" if thumb is None else "thumbnail %s" % ("planet" if thumb else "empty")
+    if n == 0:
+        return 1, "VERDICT UNCHECKED: %s -- none of the %d sampled blocks could be read%s" % (
+            name, sampled, "" if thumb is None else "; the thumbnail (%s) is only the first frame" % ("planet" if thumb else "empty"))
+    evidence = blocks + ([] if thumb is None else [thumb])
+    if not any(evidence):
+        return 2, "VERDICT EMPTY: %s -- no planet in the thumbnail or any readable block (%s)" % (name, read)
+    if all(evidence):
+        if n < min_blocks:
+            return 1, "VERDICT UNCHECKED: %s -- planet wherever it could be read, but only %s (PLANET needs %d)" % (name, read, min_blocks)
+        return 0, "VERDICT PLANET: %s -- planet in %severy readable block (%s)" % (name, "the thumbnail and " if thumb else "", read)
+    return 3, "VERDICT PARTIAL: %s -- planet in %d of %d samples (%s, %s)" % (name, sum(evidence), len(evidence), th, read)
 
 
 def check_air(a):
     for attempt in range(a.retries + 1):
         try:
             folder = a.video_dir or os.path.join(ensure_mount(a, force=attempt > 0), a.folder)
-            name, newest = newest_clip(folder, a.since, a.skew, a.exclude or ())
+            name, newest = newest_clip(folder, a.since, a.skew, a.exclude or (), a.until)
             break
         except OSError as e:
             log("share not readable (%s: %s)%s" % (e.__class__.__name__, e, "; retry in 10 s" if attempt < a.retries else ""))
@@ -283,56 +324,63 @@ def check_air(a):
         log("VERDICT UNCHECKED: could not read %s" % (a.video_dir or "//%s/%s/%s" % (a.host, a.share, a.folder)))
         return 1
     if name is None:
-        log("VERDICT EMPTY: no new clip in %s named at or after %s (-%d s skew)%s -- nothing was recorded" % (
-            a.folder, a.since, a.skew, "" if newest is None else "; the newest there is %s, %s" % (
-                newest, "already checked" if newest in (a.exclude or ()) else "and if that is the new clip the Air's clock is behind this Mac's")))
+        log("VERDICT EMPTY: no new clip in %s named at or after %s (-%d s skew)%s%s -- nothing was recorded" % (
+            a.folder, a.since, a.skew, "" if a.until is None else " and at or before %s" % a.until,
+            "" if newest is None else "; the newest there is %s, %s" % (
+                newest, "already checked" if newest in (a.exclude or ()) else "after --until" if a.until and NAME_TS.match(newest).group(1) > a.until
+                else "and if that is the new clip the Air's clock is behind this Mac's")))
         return 2
     path = os.path.join(folder, name)
-    size, t0 = os.path.getsize(path), time.time()
+    size, t0, growing = os.path.getsize(path), time.time(), False
     while time.time() - t0 < a.settle:
         time.sleep(2.0)
         now = os.path.getsize(path)
-        if now == size:
+        growing = now != size
+        if not growing:
             break
         log("  %s still growing (%.2f GB), waiting" % (name, now / 1e9))
         size = now
     log("clip %s  %.2f GB" % (name, size / 1e9))
-    evidence = []
+    if growing:
+        log("  still growing after %.0f s: probably still being recorded -- only what is written so far is judged" % a.settle)
+    thumb, blocks = None, []
     t = os.path.join(folder, re.sub(r"\.avi$", "", name, flags=re.I) + "_thn.jpg")
     try:
         c = Clip(path, roi=a.roi)
+        log("  frames %dx%d, %s" % (c.width, c.height, c.header))
+        last = [time.time()]
+
+        def scanning(pos):
+            if time.time() - last[0] >= a.heartbeat:
+                last[0] = time.time()
+                log("    ... looking for a %dx%d frame at %.2f of %.2f GB" % (c.width, c.height, pos / 1e9, c.size / 1e9))
+        c.on_scan = scanning
         if os.path.exists(t):
             d = check_thumb(t, a, c.width)
             if d is not None:
-                evidence.append(d.ok)
+                thumb = d.ok
                 log("  thumbnail (first frame): %s" % d)
         else:
             log("  no thumbnail %s" % os.path.basename(t))
         kw = detector_kw(a)
         for frac in a.block_at:
-            t1 = time.time()
+            t1 = last[0] = time.time()
             m, got = c.block_mean(frac, a.block)
             if m is None:
-                log("  %3.0f%% into the file: no frames readable" % (100 * frac))
+                log("  %3.0f%% into the file: no frames readable (no %dx%d frame chunk from there to the end, %.1f s)" % (
+                    100 * frac, c.width, c.height, time.time() - t1))
                 continue
             d = detect(m, **kw)
-            evidence.append(d.ok)
+            blocks.append(d.ok)
             log("  %3.0f%% into the file: mean of %d frames: %s  (read in %.1f s)" % (100 * frac, got, d, time.time() - t1))
         c.close()
     except OSError as e:
-        log("VERDICT UNCHECKED: reading %s failed after %d sample(s): %s: %s" % (name, len(evidence), e.__class__.__name__, e))
+        log("VERDICT UNCHECKED: reading %s failed after %d sample(s): %s: %s" % (
+            name, len(blocks) + (thumb is not None), e.__class__.__name__, e))
         return 1
-    if not evidence:
-        log("VERDICT UNCHECKED: nothing in %s could be read" % name)
-        return 1
-    if all(evidence):
-        log("VERDICT PLANET: %s -- planet in the thumbnail and every sampled block" % name)
-        return 0
-    if not any(evidence):
-        log("VERDICT EMPTY: %s -- no planet in the thumbnail or any sampled block" % name)
-        return 2
-    log("VERDICT PARTIAL: %s -- planet in %d of %d samples" % (name, sum(evidence), len(evidence)))
-    return 3
+    code, line = air_verdict(name, thumb, blocks, len(a.block_at), a.min_blocks)
+    log(line)
+    return code
 
 
 if __name__ == "__main__":
@@ -353,7 +401,10 @@ if __name__ == "__main__":
     ap.add_argument("--folder", default="Video")
     ap.add_argument("--mountpoint", default=os.path.join(tempfile.gettempdir(), "asiair_emmc"))
     ap.add_argument("--video-dir", help="--air: read clips from this folder instead of mounting the share (a share you mounted yourself, or pulled files)")
-    ap.add_argument("--since", help="--air: YYYY-MM-DD-HHMMSS local; the clip must be named at or after this")
+    ap.add_argument("--since", type=stamp, help="--air: YYYY-MM-DD-HHMMSS local; the clip must be named at or after this")
+    ap.add_argument("--until", type=stamp, help="--air: YYYY-MM-DD-HHMMSS; the clip must be named at or before this, compared "
+                    "with the name as the Air wrote it (no --skew) -- keeps a manual check off the clip still being recorded")
+    ap.add_argument("--min-blocks", type=int, default=2, help="--air: PLANET needs at least this many readable block means")
     ap.add_argument("--skew", type=float, default=60, help="--air: seconds of clock difference allowed between this Mac and the Air")
     ap.add_argument("--exclude", action="append", help="--air: a clip name already checked, never to be taken for the new one (repeatable)")
     ap.add_argument("--settle", type=float, default=20, help="--air: seconds to wait for the file to stop growing")
@@ -365,7 +416,11 @@ if __name__ == "__main__":
     if a.air:
         if not a.since:
             ap.error("--air needs --since")
+        if a.until and a.until < a.since:
+            ap.error("--until %s is before --since %s" % (a.until, a.since))
         a.block_at = a.block_at or [0.05, 0.5, 0.95]
+        if not 1 <= a.min_blocks <= len(a.block_at):
+            ap.error("--min-blocks must be 1..%d (the number of --block-at fractions)" % len(a.block_at))
         sys.exit(check_air(a))
 
     a.block_at = a.block_at or [0.05, 0.25, 0.5, 0.75, 0.95]
