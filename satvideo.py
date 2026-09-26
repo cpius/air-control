@@ -62,6 +62,8 @@ ap.add_argument("--jacobian", default="170.6,39.4,-51.8,180.8",
 ap.add_argument("--deadband", type=float, default=40.0, help="px: no correction inside this")
 ap.add_argument("--min-gap", type=float, default=4.0, help="seconds between corrections")
 ap.add_argument("--no-hold", action="store_true", help="record without corrections")
+ap.add_argument("--hold-mode", default="goto", choices=["goto", "pulse"], help="pulse: no goto (register not trustworthy, 2026-09-26) -- Dec by 20x joystick pulses, RA east by pausing tracking, RA west by a pulse")
+ap.add_argument("--east", default="0.239,0.971", help="--hold-mode pulse: sky east on the sensor (camangle.py)")
 ap.add_argument("--exp-max", type=float, default=100.0, help="ms; the exposure test will not go longer than this")
 ap.add_argument("--gain-max", type=int, default=450, help="raise the gain in steps of 50 up to this when the exposure cap is not enough")
 ap.add_argument("--max-dim-exp", type=float, default=None, help="ms; if the exposure test needs more than this, treat it as cloud and do not record")
@@ -190,7 +192,34 @@ try:
     cx, cy = f.w / 2.0, f.h / 2.0
 
     # -- hold loop, with the recorder running --------------------------------
+    def correct_pulse(q):
+        """Planet back to the ROI centre with pulses; returns ((east', north') the pointing moved, px off)."""
+        from air_rpc import Air
+        E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
+        dd = np.array([q.x - cx, q.y - cy]); e_as, n_as = float(dd @ E) * a.arcsec_per_px, float(dd @ N) * a.arcsec_per_px
+        def mdo(fn):
+            mm = Air(host(), 4400)
+            try: return fn(mm)
+            finally: mm.close()
+        def pulse(cmd, secs):
+            def f(mm):
+                idx = mm.call("scope_get_info", [])["result"]["slew_rate_index"]
+                try: mm.call("scope_set_slew_rate", [4]); mm.call("scope_move", [cmd]); time.sleep(secs)
+                finally:
+                    mm.call("scope_move", ["none"]); mm.call("scope_move", ["none"]); mm.call("scope_set_slew_rate", [idx])
+            mdo(f)
+        if abs(n_as) > 8:
+            pulse("south" if n_as > 0 else "north", min(abs(n_as) / 312.0, 0.5))      # pier west: 'south' raises Dec
+        if e_as > 8:
+            try: mdo(lambda mm: mm.call("scope_set_track_state", [False])); time.sleep(min(e_as / 15.0, 6.0))
+            finally: mdo(lambda mm: mm.call("scope_set_track_state", [True]))
+        elif e_as < -8:
+            pulse("west", min(-e_as / 312.0, 0.5))
+        return np.array([e_as / 60.0, n_as / 60.0]), float(np.hypot(*dd))
+
     def correct(q, J):
+        if a.hold_mode == "pulse":
+            return correct_pulse(q)
         need = np.array([cx - q.x, cy - q.y])
         corr = np.linalg.solve(J, need)                     # arcmin RA, Dec
         global m
