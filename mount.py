@@ -260,6 +260,14 @@ class Mount:
                         log.info("%s complete after %.1fs (%d progress event(s))",
                                  name, time.time() - t0, seen[0])
                         return ev
+                    if ev.get("state") == "fail":
+                        # e.g. goto 300 "internal error" in ~49 ms, route []:
+                        # nothing will move, so don't sit out the timeout.
+                        log.error("%s failed after %.1fs: %s (code %s)", name,
+                                  time.time() - t0, ev.get("error"), ev.get("code"))
+                        raise RuntimeError(
+                            f"{name} failed: {ev.get('error')} (code {ev.get('code')}); "
+                            f"event: {json.dumps(ev, ensure_ascii=False)}")
                 if not self.air.alive:
                     log.error("4400 closed mid-%s after %.1fs — the mount is "
                               "probably still moving", name, time.time() - t0)

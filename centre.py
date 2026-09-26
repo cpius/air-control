@@ -26,7 +26,9 @@ def goto_small(m, ra, dec, timeout=25):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--star", default="vega")
+    ap.add_argument("--star", default="vega", help="name from STARS, or use --ra/--dec")
+    ap.add_argument("--ra", type=float, default=None, help="JNow hours (planets: from Horizons), overrides --star")
+    ap.add_argument("--dec", type=float, default=None, help="JNow degrees")
     ap.add_argument("--exp", type=float, default=0.05)
     ap.add_argument("--gain", type=int, default=0)
     ap.add_argument("--cal-arcmin", type=float, default=3.0)
@@ -35,7 +37,7 @@ if __name__ == "__main__":
     ap.add_argument("--target", default="960,540", help="bin2 pixel to put the star on")
     ap.add_argument("--jacobian", default=None, help="px/arcmin as a,b,c,d for [[dx/dRA, dx/dDec],[dy/dRA, dy/dDec]] -- skips the calibration moves")
     a = ap.parse_args()
-    ra0, de0 = jnow(*STARS[a.star]); tx, ty = [float(v) for v in a.target.split(",")]
+    ra0, de0 = (a.ra, a.dec) if a.ra is not None else jnow(*STARS[a.star]); tx, ty = [float(v) for v in a.target.split(",")]
     m = Mount(host()); p = Pipes()
     try:
         p.setup("preview", a.exp, a.gain, 2)

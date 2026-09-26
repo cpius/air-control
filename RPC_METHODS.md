@@ -77,7 +77,8 @@ hours, Dec/Alt/Az in degrees.**
 | `scope_move_left_by_angle` | `[obj]` | Slew by angle |
 | `scope_park` | — | Park |
 | `scope_abort_slew` | — | Stop a slew / unpark move |
-| `scope_set_track_mode` / `scope_set_slew_rate` | `[index]` | Track mode / slew rate (list index) |
+| `scope_set_slew_rate` | `[index]` | Slew rate (index into `slew_rate_list`) |
+| `scope_set_track_mode` | `["Lunar"]` | Track mode by **name** from `track_mode_list` (`Sidereal`/`Solar`/`Lunar`); an integer index returns `105 expected string param` (measured 2026-09-24). Read back with `scope_get_track_mode` -> `{list, index}` |
 | `scope_set_guide_rate` | `[rate]` | Pulse-guide rate, a **float** ×sidereal (e.g. `0.5`) |
 
 ## Solve-and-center (these ARE on 4700, main channel)

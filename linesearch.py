@@ -9,7 +9,9 @@ from findstar import STARS, jnow, blobs
 from mount import Mount
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--star", default="vega")
+ap.add_argument("--star", default="vega", help="name from STARS, or use --ra/--dec")
+ap.add_argument("--ra", type=float, default=None, help="JNow hours (planets: from Horizons), overrides --star")
+ap.add_argument("--dec", type=float, default=None, help="JNow degrees")
 ap.add_argument("--step-arcmin", type=float, default=14.0)
 ap.add_argument("--max-steps", type=int, default=8)
 ap.add_argument("--dec-rows", default="0", help="comma list of Dec offsets in arcmin, e.g. 0,-20,20")
@@ -18,7 +20,7 @@ ap.add_argument("--gain", type=int, default=100)
 ap.add_argument("--sync", action="store_true")
 ap.add_argument("--tag", default="line")
 a = ap.parse_args()
-ra0, de0 = jnow(*STARS[a.star])
+ra0, de0 = (a.ra, a.dec) if a.ra is not None else jnow(*STARS[a.star])
 m = Mount(host()); p = Pipes()
 found = None
 def goto_small(ra, dec):
