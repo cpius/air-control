@@ -67,7 +67,7 @@ for name, (path, when) in SETS.items():
 
 json.dump({
     "schema_version": 2,
-    "generated_by": "air-control/make_horizon.py -- do not hand-edit",
+    "generated_by": "air-control/horizon/make_horizon.py -- do not hand-edit",
     "site": {"name": "Copenhagen flat, two balconies",
              "lat": 55.689444, "lon": 12.555278, "elevation_m": 20},
     "frame": {
@@ -99,7 +99,7 @@ doc = f"""# Horizon — what each balcony can actually see
 
 Machine-readable companion: [`horizon-mask.json`](horizon-mask.json).
 Hardware facts live in [`RIG.md`](RIG.md).
-**Both files are generated** by `air-control/make_horizon.py` from the survey
+**Both files are generated** by `air-control/horizon/make_horizon.py` from the survey
 JSONLs. Do not hand-edit them; re-run it instead.
 
 ## Status
@@ -193,7 +193,7 @@ Moon's position is ephemeris-exact:
 
 ## Method, and the three ways it lies to you
 
-`air-control/ladder.py` finds a boundary by solve-verified bisection;
+`air-control/horizon/ladder.py` finds a boundary by solve-verified bisection;
 `refine.py` tightens a known bracket without re-deriving it; `skysurvey.py` takes
 the individual shots. All write JSONL, and `survey_report.py` renders the map.
 
