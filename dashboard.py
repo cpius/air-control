@@ -231,22 +231,16 @@ def find_previews(rows, roots, limit=MAX_PREVIEWS):
     """Preview frames, newest first. The pane shows as many as fit and pages
     back through the rest.
 
-    Frames a tool announced with rec.artifact("preview", ...) win outright;
-    only when the log has none does it fall back to the newest images anywhere
-    under the roots. A path announced twice is one frame -- the file on disk
-    only holds the later one.
+    Two sources, merged by time: frames a tool announced with
+    rec.artifact("preview", ...), which carry its meta, and the newest images
+    anywhere under the roots, which catch every tool that does not announce.
+    An announced frame replaces its own glob hit; a path announced twice is
+    one frame, since the file on disk only holds the later one.
     """
-    out, seen = [], set()
-    for r in reversed(rows):
+    announced = {}
+    for r in rows:                        # oldest first: the last announcement wins
         if r.get("kind") == "artifact" and r.get("artifact") == "preview":
-            p = r.get("path", "")
-            if p not in seen and os.path.exists(p):
-                seen.add(p)
-                out.append({"path": p, "t": r.get("t"), "meta": r.get("meta")})
-                if len(out) >= limit:
-                    break
-    if out:
-        return out
+            announced[os.path.abspath(r.get("path", ""))] = r
     found = {}
     for root in roots:
         for ext in PREVIEW_EXT:
@@ -256,13 +250,26 @@ def find_previews(rows, roots, limit=MAX_PREVIEWS):
                 if os.path.join("dashboard", "data") + os.sep in p:
                     continue
                 try:
-                    found[p] = os.path.getmtime(p)
+                    found[os.path.abspath(p)] = os.path.getmtime(p)
                 except OSError:
                     continue      # deleted between the glob and the stat
-    newest = heapq.nlargest(limit, found.items(), key=lambda kv: kv[1])
-    return [{"path": p, "meta": None,
-             "t": datetime.datetime.fromtimestamp(m).isoformat(timespec="seconds")}
-            for p, m in newest]
+    for p, r in announced.items():        # may sit outside the roots' glob
+        if p in found or os.path.exists(p):
+            found[p] = _epoch(r.get("t")) or found.get(p) or 0
+    out = []
+    for p, m in heapq.nlargest(limit, found.items(), key=lambda kv: kv[1]):
+        r = announced.get(p)
+        out.append({"path": p, "meta": r.get("meta") if r else None,
+                    "t": r.get("t") if r else
+                    datetime.datetime.fromtimestamp(m).isoformat(timespec="seconds")})
+    return out
+
+
+def _epoch(iso):
+    try:
+        return datetime.datetime.fromisoformat(iso).timestamp()
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------
