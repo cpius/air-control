@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find the Moon when pointing is off: climb the scattered-moonlight gradient.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u moonhunt.py --step 30 --exp 1 --gain 200
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonhunt.py --step 30 --exp 1 --gain 200
 
 At each position take one preview frame (bin 2) and score it by the median
 minus the bias measured at --bias-exp. Probe the four neighbours at --step
@@ -12,7 +12,7 @@ the step drops below --min-step. Every frame is saved as a PNG.
 """
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, log, save_png
 from joystick import Joystick
 
@@ -28,7 +28,7 @@ ap.add_argument("--rate", type=int, default=5, help="slew-rate index for the mov
 ap.add_argument("--start-ra", type=float, help="register RA (h) to start from; default: where it is")
 ap.add_argument("--start-dec", type=float)
 ap.add_argument("--max-probes", type=int, default=40)
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "moonhunt"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "moonhunt"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 

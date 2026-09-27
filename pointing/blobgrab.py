@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """One preview frame (16-bit, bin 2 by default): stats, the biggest blobs, a PNG. stop_exposure first.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u blobgrab.py --exp 1 --gain 150 --bin 2 --tag alpheratz
+    ASIAIR_HOST=192.168.1.35 python3 -u pointing/blobgrab.py --exp 1 --gain 150 --bin 2 --tag alpheratz
 """
 import argparse, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session, png
 from findstar import blobs
 
@@ -13,10 +13,10 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST", "192.168.1.35"))
 ap.add_argument("--exp", type=float, default=1.0); ap.add_argument("--gain", type=int, default=150)
 ap.add_argument("--bin", type=int, default=2); ap.add_argument("--nsig", type=float, default=8.0)
-ap.add_argument("--tag", default="grab"); ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d")))
+ap.add_argument("--tag", default="grab"); ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d")))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
-s = Session(a.host, os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"), with_mount=False)
+s = Session(a.host, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"), with_mount=False)
 try:
     t0 = time.time()
     s.page("preview", a.exp, a.gain, binning=a.bin)

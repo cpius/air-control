@@ -48,16 +48,16 @@ THE RULES, all learned the hard way:
    takes more than ~20 s without correcting loses the planet -- including your
    own edit-and-restart cycle.
 
-    python3 planet_hold.py
+    python3 planetary/planet_hold.py
 """
 import math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
-SCR=os.environ.get('PLANET_HOLD_LOG', os.path.dirname(os.path.abspath(__file__)))
+SCR=os.environ.get('PLANET_HOLD_LOG', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT=open(SCR+'/sess.txt','w',buffering=1)
 def p(*a): OUT.write(" ".join(str(x) for x in a)+"\n")
-HOST=os.environ.get('ASIAIR_HOST','192.168.1.35'); KEY=os.path.join(os.path.dirname(os.path.abspath(__file__)),'embedded_key.pem')
+HOST=os.environ.get('ASIAIR_HOST','192.168.1.35'); KEY=os.path.join(os.path.dirname(os.path.abspath(__file__)),'..', 'embedded_key.pem')
 EXP,GAIN=0.02,250
 LO,HI=35000,45000
 DEAD=22.0

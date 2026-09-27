@@ -10,6 +10,30 @@ The Air exposes several network services; this toolkit uses the ones the app
 actually relies on. Two need no authentication; the third — the main camera
 channel — uses ZWO's RSA challenge handshake.
 
+## Layout
+
+Run everything from the repository root — `python3 -u planetary/satvideo.py ...`,
+`planetary/satloop.sh ...` — so relative paths such as `--key embedded_key.pem`
+resolve the same way for every tool.
+
+| Folder | What is in it |
+|---|---|
+| `lib/` | The building blocks the tools import: the 4700/4400 RPC client (`air_rpc`), logging, the 4800/4500 frame clients, mount, joystick and nudges, sessions, plate solving, frame analysis. Most also have a small CLI. |
+| `rig/` | Finding the Air, the RSA key and handshake, Wi-Fi, status, power logging, and bringing the rig back after a restart. |
+| `pointing/` | Goto, centring, sync and resync, joystick slews, grid and line searches, drift and pointing-model checks. |
+| `focus/` | Autofocus, focus sweeps and metrics (stars, planets, the lunar limb and surface), the focus-point database, guide-sensor focus. |
+| `planetary/` | Planet video: `satloop.sh`, `satvideo`, the planet hold, search and centring, clip checks, Saturn's moons. |
+| `moon/` | Finding the Moon when pointing is lost, frames of it, the mosaic. |
+| `calibrate/` | Measuring the rig: plate scale, camera angle, ADC, sensor dust, mount rates, recorder throughput. |
+| `capture/` | Deep-sky capture: calibration frames, guiding, a single frame to FITS. |
+| `horizon/` | The horizon survey and the batches that ran it. |
+| `dashboard/` | The rig dashboard, live log page, weather, and a fake Air for offline work. |
+| `tests/` | Offline tests: `tests/test_satloop.zsh`, `tests/test_clipcheck_verdicts.py`, `tests/test_satvideo_replay.py`. |
+| `docs/` | `RPC_METHODS.md` (the method map) and `CMD_METHODS.tsv` (the app's command table). |
+
+A tool imports `lib/` modules by their plain names (`from air_rpc import Air`);
+each script puts `lib/` on `sys.path` itself, so nothing needs installing.
+
 ## The services this uses
 
 | Port | Auth | What lives here |
@@ -28,9 +52,9 @@ doesn't), so don't rely on `ping` — use Alpaca discovery or a TCP scan.
 ## 1. Find your Air
 
 ```bash
-python3 discover.py                    # Alpaca UDP + mDNS + TCP sweep of your subnet
-python3 discover.py --subnet 10.0.0    # if you joined the Air's own Wi-Fi AP
-python3 discover.py --host <air-ip>    # fingerprint a known address
+python3 rig/discover.py                    # Alpaca UDP + mDNS + TCP sweep of your subnet
+python3 rig/discover.py --subnet 10.0.0    # if you joined the Air's own Wi-Fi AP
+python3 rig/discover.py --host <air-ip>    # fingerprint a known address
 ```
 
 Note the Air's IP, and its Alpaca port if you'll use Alpaca. Substitute your IP
@@ -49,12 +73,12 @@ device — on the built-in units that's the main sensor plus the onboard guide
 sensor; on a standalone ASIAIR it's whatever cameras you've plugged in.
 
 ```bash
-python3 alpaca.py --host <air-ip> info                         # devices + camera info
-python3 alpaca.py --host <air-ip> get camera 0 ccdtemperature
-python3 alpaca.py --host <air-ip> put camera 0 gain Gain=252
-python3 alpaca.py --host <air-ip> put camera 0 setccdtemperature SetCCDTemperature=-10
-python3 alpaca.py --host <air-ip> put camera 0 cooleron CoolerOn=True
-python3 alpaca.py --host <air-ip> expose 5 --gain 252 --out frame.json
+python3 lib/alpaca.py --host <air-ip> info                         # devices + camera info
+python3 lib/alpaca.py --host <air-ip> get camera 0 ccdtemperature
+python3 lib/alpaca.py --host <air-ip> put camera 0 gain Gain=252
+python3 lib/alpaca.py --host <air-ip> put camera 0 setccdtemperature SetCCDTemperature=-10
+python3 lib/alpaca.py --host <air-ip> put camera 0 cooleron CoolerOn=True
+python3 lib/alpaca.py --host <air-ip> expose 5 --gain 252 --out frame.json
 ```
 
 `alpaca.py` defaults to port `32323` (the built-in Air units); pass `--port` for a
@@ -71,7 +95,7 @@ The firmware records AVI to eMMC and supports a readout ROI. The commands are
 (the app's tag for the Video tab — `"video"` is rejected).
 
 ```bash
-python3 video.py --host <air-ip> --key embedded_key.pem \
+python3 planetary/video.py --host <air-ip> --key embedded_key.pem \
     --seconds 30 --exposure-ms 8 --gain 250 --roi 800x800
 ```
 
@@ -100,7 +124,7 @@ Progress arrives as `AviRecord` events carrying
 **Do not probe for method names.** These were all missed by probing —
 `start_video`, `start_recording`, `start_video_record`, `set_roi` all return
 `103 method not found`, which looks exactly like the feature being absent. The
-app ships its own command table; `CMD_METHODS.tsv` in this repo is that table
+app ships its own command table; `docs/CMD_METHODS.tsv` is that table
 (289 commands, extracted from `com.zwoasi.kit.cmd.CmdMethod`). A `103` only
 tells you your guess was wrong.
 
@@ -114,7 +138,7 @@ the native recorder.
 change exposure or clip the core) that runs alongside the ASIAIR app.
 
 ```bash
-python3 focus_monitor.py --host <air-ip> --key embedded_key.pem --arcsec-per-px 2.462
+python3 focus/focus_monitor.py --host <air-ip> --key embedded_key.pem --arcsec-per-px 2.462
 ```
 
 ## 3. Native RPC on 4700 — needs the RSA key
@@ -141,16 +165,16 @@ Android device to pull the APK from, a mirror such as
 `.xapk` bundle — download that and point the script at it:
 
 ```bash
-python3 extract_key.py ASIAIR_x.y.z.xapk        # -> embedded_key.pem (git-ignored)
+python3 rig/extract_key.py ASIAIR_x.y.z.xapk        # -> embedded_key.pem (git-ignored)
 ```
 
 Then use it (the key stays local — `embedded_key.pem` is git-ignored):
 
 ```bash
-python3 handshake.py --host <air-ip> --key embedded_key.pem      # prove the handshake
-python3 air_rpc.py  --host <air-ip> --key embedded_key.pem probe # see what's implemented
-python3 air_rpc.py  --host <air-ip> --key embedded_key.pem call get_device_state
-python3 air_rpc.py  --host <air-ip> --key embedded_key.pem console
+python3 rig/handshake.py --host <air-ip> --key embedded_key.pem      # prove the handshake
+python3 lib/air_rpc.py  --host <air-ip> --key embedded_key.pem probe # see what's implemented
+python3 lib/air_rpc.py  --host <air-ip> --key embedded_key.pem call get_device_state
+python3 lib/air_rpc.py  --host <air-ip> --key embedded_key.pem console
 ```
 
 Signing needs the `cryptography` package — the only non-stdlib dependency, used
@@ -164,24 +188,24 @@ because they're gated, but because they're on the wrong port. Connect to 4400 an
 call directly. Coordinates are **RA in hours, Dec/Alt/Az in degrees**.
 
 ```bash
-python3 mount.py --host <air-ip> info                  # model / firmware / driver
-python3 mount.py --host <air-ip> coord                 # live RA/Dec/Alt/Az + tracking
-python3 mount.py --host <air-ip> track on              # sidereal tracking
-python3 mount.py --host <air-ip> goto 20.016 35.365    # slew to RA(h) Dec(deg)
-python3 mount.py --host <air-ip> sync 20.016 35.365
-python3 mount.py --host <air-ip> park
+python3 lib/mount.py --host <air-ip> info                  # model / firmware / driver
+python3 lib/mount.py --host <air-ip> coord                 # live RA/Dec/Alt/Az + tracking
+python3 lib/mount.py --host <air-ip> track on              # sidereal tracking
+python3 lib/mount.py --host <air-ip> goto 20.016 35.365    # slew to RA(h) Dec(deg)
+python3 lib/mount.py --host <air-ip> sync 20.016 35.365
+python3 lib/mount.py --host <air-ip> park
 
-python3 guide.py --host <air-ip> state                 # Idle / Looping / Guiding / …
-python3 guide.py --host <air-ip> connect on
-python3 guide.py --host <air-ip> expose 1000
-python3 guide.py --host <air-ip> loop
+python3 capture/guide.py --host <air-ip> state                 # Idle / Looping / Guiding / …
+python3 capture/guide.py --host <air-ip> connect on
+python3 capture/guide.py --host <air-ip> expose 1000
+python3 capture/guide.py --host <air-ip> loop
 ```
 
 Plate-solve-and-center uses both channels — the native `start_auto_goto` on 4700
 (needs the key) exposes, solves, and nudges the mount until centered:
 
 ```bash
-python3 solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon targets
+python3 pointing/solve_center.py --host <air-ip> 20.016 35.365  # refuses below-horizon targets
 ```
 
 ## 5. Power telemetry — is it dead, or just flat?
@@ -193,9 +217,9 @@ be seen coming — and so the moment of loss is itself recorded, as a row with a
 empty voltage and `note=unreachable`.
 
 ```bash
-python3 telemetry.py --host <air-ip>                       # voltage only, 60s rows
-python3 telemetry.py --host <air-ip> --key embedded_key.pem  # + undervolt/temp
-python3 telemetry.py --host <air-ip> --once                # single reading
+python3 rig/telemetry.py --host <air-ip>                       # voltage only, 60s rows
+python3 rig/telemetry.py --host <air-ip> --key embedded_key.pem  # + undervolt/temp
+python3 rig/telemetry.py --host <air-ip> --once                # single reading
 ```
 
 `scope_get_info.input_voltage` (4400, millivolts) is the mount's supply;
@@ -211,7 +235,7 @@ is transient. `start_exposure` there exposes, and the frame can be pulled down
 off port 4800 —
 
 ```bash
-python3 main_image.py --host <air-ip> --out frame    # last captured frame
+python3 lib/main_image.py --host <air-ip> --out frame    # last captured frame
 ```
 
 — but the Air never writes it to its own storage, and **no dithering happens**.
@@ -225,7 +249,7 @@ set_page(["autosave"]) -> set_sequence([...]) -> set_sequence_setting([...])
 
 That is the only path that saves to eMMC and dithers between frames. The full
 shape, and the four details that each break it silently, are in
-[`RPC_METHODS.md`](RPC_METHODS.md) under *Autorun*.
+[`docs/RPC_METHODS.md`](docs/RPC_METHODS.md) under *Autorun*.
 
 ## 7. Logging — a line a second through anything slow
 
@@ -305,11 +329,11 @@ every command sent to the Air, every message from it split by subsystem) for
 watching the rig from a phone on the balcony:
 
 ```bash
-python3 dashboard.py --bind 0.0.0.0        # http://<laptop-ip>:8765
+python3 dashboard/dashboard.py --bind 0.0.0.0        # http://<laptop-ip>:8765
 ```
 
 Recording is automatic: `recorder.py` is tapped into `air_rpc.Air`, so every
-tool in this directory feeds the log without changes. `snapshot.py` freezes the
+tool in this repo feeds the log without changes. `snapshot.py` freezes the
 page into one self-contained HTML file; `weather.py` is the sky-conditions
 source (Open-Meteo + RainViewer) and works on its own too. `fake_air.py` and
 `demo_data.py` let you develop against the dashboard with no Air on the network.
@@ -324,8 +348,8 @@ horizon mask and an HTML map. The `queue_*.sh` scripts are the batches that
 were actually run.
 
 ```bash
-python3 ladder.py --host <air-ip> --az 90 --lo 4 --hi 30      # find the roofline at az 90
-python3 survey_report.py                                       # render the map
+python3 horizon/ladder.py --host <air-ip> --az 90 --lo 4 --hi 30      # find the roofline at az 90
+python3 horizon/survey_report.py                                       # render the map
 ```
 
 Recovery and housekeeping tools in the same family: `recover.py` (bring the
@@ -345,8 +369,8 @@ is ~12″ and is measured and compensated), and it can read the main camera on
 the `rtmp` page or the on-axis guide sensor.
 
 ```bash
-python3 planet_track.py --host <air-ip> --source main --page focus --bin 2 --exp 0.05 --gain 100 --seconds 120
-python3 planet_track.py --host <air-ip> --source main --video-roi 512x512 --exp 0.015 --gain 250 --record 90
+python3 planetary/planet_track.py --host <air-ip> --source main --page focus --bin 2 --exp 0.05 --gain 100 --seconds 120
+python3 planetary/planet_track.py --host <air-ip> --source main --video-roi 512x512 --exp 0.015 --gain 250 --record 90
 ```
 
 Proven on Saturn 2026-09-02: a 512×512 ROI at 15 ms recorded 4494 frames at
@@ -366,38 +390,38 @@ keep the Bayer mosaic, so every metric folds 2×2 superpixels first).
 
 | File | What it does |
 |---|---|
-| `discover.py` | Find the Air: Alpaca UDP discovery, mDNS, TCP sweep. |
-| `alpaca.py` | ASCOM Alpaca camera client + CLI; importable as `from alpaca import Alpaca`. |
-| `air_rpc.py` | Native 4700 RPC: `probe`, `call`, `console`, `listen`. `--key` runs the RSA handshake. |
-| `mount.py` | Mount control on 4400: `info`, `coord`, `track`, `goto`, `sync`, `park`. |
-| `guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `start`, `stop`. |
-| `solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
-| `telemetry.py` | Log supply voltage + the Air's undervolt flag to CSV, so a flat battery is distinguishable from a crash. |
-| `main_image.py` | Native MainImageSocket client on 4800: pull the last captured frame. |
-| `guide_image.py` | Watch the guide camera live on 4500, without disturbing the main camera. |
-| `joystick.py` | Directional mount control on 4400 (`scope_move`) + slew-rate calibration. |
-| `starhunt.py` | Joystick-driven star search, for when plate solving isn't available. |
-| `demo_slew.py` | Small self-returning demonstration slew — a safe first move. |
-| `extract_key.py` | Pull the RSA interop key out of an ASIAIR APK/XAPK into `embedded_key.pem`. |
-| `handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
-| `find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
-| `smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
-| `airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
-| `dashboard.py` | Live rig dashboard on :8765 — weather, focus, preview, commands out, messages in by subsystem. |
-| `recorder.py` | The tap inside `air_rpc.Air` that writes every command/reply/event to `dashboard/data/*.jsonl`. |
-| `snapshot.py` | Freeze the dashboard into one self-contained HTML file. |
-| `weather.py` | Sky conditions now and 30 min out (Open-Meteo, RainViewer), with dew-point and Moon/Sun altitude. |
-| `fake_air.py`, `demo_data.py` | A fake Air and synthetic data for developing the dashboard offline. |
-| `ladder.py`, `refine.py`, `skysurvey.py` | Horizon survey: solve-verified bisection of each roofline; `make_horizon.py` + `survey_report.py` render the mask and map. |
-| `recover.py`, `restore_mount.py`, `resync.py` | Bring the rig back after an Air restart or a lost pointing model. |
-| `wifi.py`, `lock.py` | Force the 2.4 GHz band; guarantee a single client on the mount. |
-| `planet_track.py` | Closed-loop planet centring with joystick pulses, 1.5–2.8 Hz, runs during AVI recording. |
-| `joyslew.py` | Joystick slew closed on the mount register, chunked and capped, aborts on a register jump. |
-| `drift.py` | Polar-alignment drift test: plate-solve one field for N minutes, fit the Dec drift. |
-| `grab.py` | One fresh preview frame to a 16-bit FITS. |
-| `centre_planet.py`, `focusstar.py`, `focus_planet.py` | Goto-based centring; interleaved star focus sweep; V-curve focus on a planet's disc. |
-| `focus_blurscale.py`, `focus_texture.py`, `focus_descend.py` | Focus metrics on the lunar surface for when the image is a blur (superpixel-folded, cloud-tolerant). |
-| `RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
+| `rig/discover.py` | Find the Air: Alpaca UDP discovery, mDNS, TCP sweep. |
+| `lib/alpaca.py` | ASCOM Alpaca camera client + CLI; importable as `from alpaca import Alpaca`. |
+| `lib/air_rpc.py` | Native 4700 RPC: `probe`, `call`, `console`, `listen`. `--key` runs the RSA handshake. |
+| `lib/mount.py` | Mount control on 4400: `info`, `coord`, `track`, `goto`, `sync`, `park`. |
+| `capture/guide.py` | Guiding on 4400: `state`, `connect`, `expose`, `loop`, `start`, `stop`. |
+| `pointing/solve_center.py` | Plate-solve-and-center via native `start_auto_goto` (horizon-guarded). |
+| `rig/telemetry.py` | Log supply voltage + the Air's undervolt flag to CSV, so a flat battery is distinguishable from a crash. |
+| `lib/main_image.py` | Native MainImageSocket client on 4800: pull the last captured frame. |
+| `lib/guide_image.py` | Watch the guide camera live on 4500, without disturbing the main camera. |
+| `lib/joystick.py` | Directional mount control on 4400 (`scope_move`) + slew-rate calibration. |
+| `lib/starhunt.py` | Joystick-driven star search, for when plate solving isn't available. |
+| `rig/demo_slew.py` | Small self-returning demonstration slew — a safe first move. |
+| `rig/extract_key.py` | Pull the RSA interop key out of an ASIAIR APK/XAPK into `embedded_key.pem`. |
+| `rig/handshake.py` | Standalone RSA handshake; proves it by reading `get_device_state`. |
+| `rig/find_methods.py` | Enumerate implemented RPC methods (silence / `103`-vs-reply oracle). |
+| `rig/smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
+| `lib/airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
+| `dashboard/dashboard.py` | Live rig dashboard on :8765 — weather, focus, preview, commands out, messages in by subsystem. |
+| `lib/recorder.py` | The tap inside `air_rpc.Air` that writes every command/reply/event to `~/ASICAP/dashboard/data/*.jsonl` (`ASICAP_DASHBOARD_DIR` moves it). |
+| `dashboard/snapshot.py` | Freeze the dashboard into one self-contained HTML file. |
+| `dashboard/weather.py` | Sky conditions now and 30 min out (Open-Meteo, RainViewer), with dew-point and Moon/Sun altitude. |
+| `dashboard/fake_air.py`, `dashboard/demo_data.py` | A fake Air and synthetic data for developing the dashboard offline. |
+| `horizon/ladder.py`, `horizon/refine.py`, `lib/skysurvey.py` | Horizon survey: solve-verified bisection of each roofline; `make_horizon.py` + `survey_report.py` render the mask and map. |
+| `rig/recover.py`, `rig/restore_mount.py`, `pointing/resync.py` | Bring the rig back after an Air restart or a lost pointing model. |
+| `rig/wifi.py`, `pointing/lock.py` | Force the 2.4 GHz band; guarantee a single client on the mount. |
+| `planetary/planet_track.py` | Closed-loop planet centring with joystick pulses, 1.5–2.8 Hz, runs during AVI recording. |
+| `pointing/joyslew.py` | Joystick slew closed on the mount register, chunked and capped, aborts on a register jump. |
+| `pointing/drift.py` | Polar-alignment drift test: plate-solve one field for N minutes, fit the Dec drift. |
+| `capture/grab.py` | One fresh preview frame to a 16-bit FITS. |
+| `planetary/centre_planet.py`, `focus/focusstar.py`, `focus/focus_planet.py` | Goto-based centring; interleaved star focus sweep; V-curve focus on a planet's disc. |
+| `focus/focus_blurscale.py`, `focus/focus_texture.py`, `focus/focus_descend.py` | Focus metrics on the lunar surface for when the image is a blur (superpixel-folded, cloud-tolerant). |
+| `docs/RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
 
 ## Safety notes
 

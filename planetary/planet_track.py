@@ -25,10 +25,10 @@ and the slew rate table is not to be trusted): one pulse east, one north,
 measured in pixels. The loop corrects any residual because it measures again
 every cycle.
 
-    python3 planet_track.py --source main --page focus --bin 2 --exp 0.05 --gain 100 --seconds 120
-    python3 planet_track.py --source main --video-roi 512x512 --exp 0.015 --gain 250 --record 90
-    python3 planet_track.py --source guide --target 331,190 --seconds 600
-    python3 planet_track.py --where              # planet position on both sensors
+    python3 planetary/planet_track.py --source main --page focus --bin 2 --exp 0.05 --gain 100 --seconds 120
+    python3 planetary/planet_track.py --source main --video-roi 512x512 --exp 0.015 --gain 250 --record 90
+    python3 planetary/planet_track.py --source guide --target 331,190 --seconds 600
+    python3 planetary/planet_track.py --where              # planet position on both sensors
 
 Proven 2026-09-02 on Saturn: 512x512 ROI at 15 ms/gain 250 records at 49 fps
 while the loop runs at 2.8 Hz, median hold 9 px (4"), worst 17 px. Small ROI is
@@ -47,7 +47,7 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 from air_rpc import Air
 
@@ -339,7 +339,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--source", default="main", choices=["main", "guide"])
     ap.add_argument("--page", default="focus", help="main-camera page when not recording (focus|preview)")
     ap.add_argument("--exp", type=float, default=0.02, help="main camera seconds")

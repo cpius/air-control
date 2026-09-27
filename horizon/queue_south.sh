@@ -7,4 +7,4 @@ cd /Users/madsdorup/ASICAP/air-control
 while pgrep -f "ladder_run.py 230" > /dev/null; do sleep 5; done
 echo "" >> $HOME/ASICAP/west-ladder.log
 echo "########## APPENDED: 195 (wall edge), then 180, 170" >> $HOME/ASICAP/west-ladder.log
-python3 -u ladder_run.py 195 180 170 >> $HOME/ASICAP/west-ladder.log 2>&1
+python3 -u horizon/ladder_run.py 195 180 170 >> $HOME/ASICAP/west-ladder.log 2>&1

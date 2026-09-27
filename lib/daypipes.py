@@ -21,7 +21,7 @@ bit depth, and how many stale re-reads it took.
 import os, sys, time, hashlib, math
 import numpy as np
 
-sys.path.insert(0, "/Users/madsdorup/ASICAP/air-control")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from session import Session
 
 HOST = os.environ.get("ASIAIR_HOST")

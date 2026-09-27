@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Every --every seconds: mount input voltage (4400), Air temperature / undervolt (4700), cooler state -> one log line."""
 import argparse, os, sys, time, json
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 ap = argparse.ArgumentParser(); ap.add_argument("--every", type=float, default=300); ap.add_argument("--host", default="192.168.1.35"); a = ap.parse_args()
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 while True:
     out = []
     try:

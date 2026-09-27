@@ -2,7 +2,7 @@
 """Climb the Moon's near-limb glare into the disc (for when the field is bright
 but shows no surface: the disc is within ~10').
 
-    ASIAIR_HOST=192.168.1.36 python3 -u moonclimb.py --exp-ms 20 --gain 100 --step 5
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonclimb.py --exp-ms 20 --gain 100 --step 5
 
 Level = clipped mean minus bias (preview, bin 2, 16-bit). Each axis is probed
 with one --step arcmin nudge; the direction that raises the level is kept and
@@ -12,7 +12,7 @@ on the disc (level > --disc) or shows the limb (bright fraction between 5% and
 """
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from joystick import Joystick
 
@@ -23,7 +23,7 @@ ap.add_argument("--rate", type=int, default=4, help="slew-rate index (4=20x ~5'/
 ap.add_argument("--disc", type=float, default=1500.0, help="level (ADU over bias) that means lunar surface fills the frame")
 ap.add_argument("--max-steps", type=int, default=16)
 ap.add_argument("--min-alt", type=float, default=7.0)
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "moonclimb"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "moonclimb"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 

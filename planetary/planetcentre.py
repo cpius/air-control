@@ -4,12 +4,12 @@ Optional pre-move by a predicted drift, then up to --passes rounds of: preview f
 Dec by a 20x pulse (312"/s), RA east by pausing tracking (15"/s), RA west by a pulse.
 Exit 0 = centred within --tol, 2 = planet not in the full field, 1 = not converged.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u planetcentre.py --pre-east -169 --pre-north -480 --east=0.239,0.971
+    ASIAIR_HOST=192.168.1.36 python3 -u planetary/planetcentre.py --pre-east -169 --pre-north -480 --east=0.239,0.971
 """
 import argparse, os, signal, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from daypipes import Pipes, host
 

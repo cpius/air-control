@@ -5,11 +5,11 @@ Same measurement as joytest.py (focus page, band-passed 2x2-superpixel phase cor
 discarded after the move). The sequence reverses Dec on purpose, so the backlash compensation is
 exercised; moves stay <= 30" E-W (the focus crop's short axis is 2.6').
 
-    ASIAIR_HOST=192.168.1.36 python3 -u nudgetest.py --east=-0.070,-0.998 --arcsec-per-px 0.1866
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/nudgetest.py --east=-0.070,-0.998 --arcsec-per-px 0.1866
 """
 import argparse, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, host, log
 from moonreg import bandpass, measure_shift
 from slowpulse import Nudger

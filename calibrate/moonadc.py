@@ -5,7 +5,7 @@ high-passed lunar texture. The G1/G2 pair is measured the same way as a
 control -- geometrically they are offset by exactly (+0.5, -0.5) plane px,
 so the method's error is visible in that number.
 
-    python3 moonadc.py --npy telemetry/2026-09-24/moonlook/*adc*.npy --arcsec-per-px 0.144 --alt 20.8 --q -45 --jacobian=-23,299.8,-237.5,27.5
+    python3 calibrate/moonadc.py --npy telemetry/2026-09-24/moonlook/*adc*.npy --arcsec-per-px 0.144 --alt 20.8 --q -45 --jacobian=-23,299.8,-237.5,27.5
 
 Reports the R-B vector in sensor (bin-1) px and arcsec, its component along
 the predicted vertical (from the parallactic angle q and the camera Jacobian)
@@ -16,7 +16,7 @@ ABOVE the red one (toward the zenith): R-B points AWAY from the zenith.
 import argparse, glob, math, os, sys
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from moonreg import bandpass, measure_shift
 
 ap = argparse.ArgumentParser()
@@ -94,7 +94,7 @@ if a.alt is None or a.q is None:
 if a.live:
     import time
     from daypipes import Pipes, log
-    outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "moonlook")
+    outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "moonlook")
     os.makedirs(outdir, exist_ok=True)
     p = Pipes(); files = []
     try:

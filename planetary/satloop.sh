@@ -2,8 +2,8 @@
 # Back-to-back Saturn clips with satvideo's hold loop -- with nothing else driving the
 # Air, and with every clip checked in the FILE before the next one starts.
 #
-#   ./satloop.sh --clips 30 --seconds 300 --until 0320
-#   ./satloop.sh --check-control          # just: is anything but the ASIAIR app on 4400/4700?
+#   planetary/satloop.sh --clips 30 --seconds 300 --until 0320
+#   planetary/satloop.sh --check-control          # just: is anything but the ASIAIR app on 4400/4700?
 #
 # 2026-09-16/17: six 300 s clips logged as RECORDED were empty sky. Pkill-by-name
 # restarts had left loops overlapping, and nothing looked at the files until morning.
@@ -25,7 +25,7 @@
 
 SELF=${0:A}                             # (inside a function zsh's $0 is the function name)
 HERE=${SELF:h}
-ROOT=${HERE:h}
+ROOT=${HERE:h:h}                        # ~/ASICAP: planetary/ -> the repo -> its parent
 NIGHT=$(date -v-12H +%Y-%m-%d)
 
 CLIPS=30; SECS=300; UNTIL=0320

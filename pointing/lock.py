@@ -15,20 +15,20 @@ Two things this exists to survive:
   * scope_move's `speed` argument being a blunt 12.4 deg instrument. Fine control
     comes from `scope_set_slew_rate` -- index 4 (20x) measures 5.46 arcmin/s.
 
-    python3 lock.py                 # calibrate, then hold until Ctrl-C
-    python3 lock.py --once          # single centring pass
-    python3 lock.py --shoot out.png # centre, then save a frame
+    python3 pointing/lock.py                 # calibrate, then hold until Ctrl-C
+    python3 pointing/lock.py --once          # single centring pass
+    python3 pointing/lock.py --shoot out.png # centre, then save a frame
 """
 import argparse, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import numpy as np
 from air_rpc import Air
 from starhunt import Camera
 from airlog import add_log_args, configure_logging, get_logger
 
 log = get_logger("lock")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 RATE_INDEX = 4          # 20x
 ARCMIN_PER_S = 5.46     # measured for index 4
 LIT = 3000              # ADU above which a pixel is lunar surface, not sky

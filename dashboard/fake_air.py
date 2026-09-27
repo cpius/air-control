@@ -12,8 +12,8 @@ It is a test double, NOT a simulator: the numbers are plausible, not physical,
 and nothing here should ever be used to check an astronomy result. Its only job
 is to make the plumbing observable while the sky is unavailable.
 
-    python3 fake_air.py --port 4700 &
-    python3 air_rpc.py --host 127.0.0.1 --port 4700 call get_device_state
+    python3 dashboard/fake_air.py --port 4700 &
+    python3 lib/air_rpc.py --host 127.0.0.1 --port 4700 call get_device_state
 """
 
 import argparse

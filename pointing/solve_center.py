@@ -12,8 +12,8 @@ Progress arrives as events; we stream them until a terminal one. A blind goto
 happens first, so this WILL slew — we refuse targets below the horizon using the
 mount's live latitude + sidereal time (read from 4400).
 
-    python3 solve_center.py 20.016 35.365            # RA hours, Dec deg
-    python3 solve_center.py 20.016 35.365 --angle 0  # with rotator angle
+    python3 pointing/solve_center.py 20.016 35.365            # RA hours, Dec deg
+    python3 pointing/solve_center.py 20.016 35.365 --angle 0  # with rotator angle
 """
 
 import argparse
@@ -22,7 +22,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger

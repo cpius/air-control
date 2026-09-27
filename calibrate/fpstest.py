@@ -8,10 +8,10 @@ never touches the mount. Each case records --seconds of whatever the camera
 sees; the resulting AVIs (in Video/ on the Air's share) carry the measured fps
 in their header, and the sidecar .txt the exposure.
 
-    python3 -u fpstest.py --seconds 12 --gain 350
+    python3 -u calibrate/fpstest.py --seconds 12 --gain 350
 """
 import argparse, os, sys, time, threading
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log
 
 ap = argparse.ArgumentParser()

@@ -2,12 +2,12 @@
 """Measure the tracking drift on the brightest blob: N frames over --seconds, centroid each,
 fit px/min, convert to arcmin/min through --jacobian (px/arcmin, bin 2). Preview page, bin 2.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u blobdrift.py --seconds 60 --exp 0.5 --gain 250 --jacobian "a,b,c,d"
+    ASIAIR_HOST=192.168.1.35 python3 -u pointing/blobdrift.py --seconds 60 --exp 0.5 --gain 250 --jacobian "a,b,c,d"
 """
 import argparse, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes
 
 ap = argparse.ArgumentParser()

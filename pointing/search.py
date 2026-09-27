@@ -4,13 +4,13 @@ register offsets around the target, one preview frame each, stop at the first BI
 whose median jumps (the donut covers the whole frame). No centring, no sync -- it reports the offset
 where the blob was seen so donutfocus.py can take over with its circle fit.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u search.py --ra 0.1628 --dec 29.239 --name Alpheratz \
+    ASIAIR_HOST=192.168.1.35 python3 -u pointing/search.py --ra 0.1628 --dec 29.239 --name Alpheratz \
         --search-ra 48 --search-dec 36 --step-ra 12 --step-dec 9 --exp 2 --gain 250
 """
 import argparse, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import png
 from daypipes import Pipes
 from mount import Mount
@@ -29,7 +29,7 @@ ap.add_argument("--dec-rows", default=None, help="explicit comma list of Dec off
 ap.add_argument("--min-blobs", type=int, default=999, help="also count as found when this many blobs (>=8 px) exceed nsig: a faint ring fragments into many")
 ap.add_argument("--offsets", default=None, help="explicit list of RA,Dec offsets in arcmin, e.g. '0,-250 -12,-240 ...' (overrides the grid, searched in the given order)")
 ap.add_argument("--no-jump", action="store_true", help="ignore frame-median jumps (passing cloud brightens the whole frame)")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "search"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "search"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 def log(s): print(f"{time.strftime('%H:%M:%S')} {s}", flush=True)

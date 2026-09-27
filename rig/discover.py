@@ -8,9 +8,9 @@ Three independent methods, because any one of them can come up empty:
   3. TCP port sweep          - brute force, works even when discovery is broken.
 
 Usage:
-    python3 discover.py                     # all methods, auto-detect subnet
-    python3 discover.py --subnet 10.0.0     # e.g. when joined to the Air's own AP
-    python3 discover.py --host 192.168.2.50 # fingerprint one known host
+    python3 rig/discover.py                     # all methods, auto-detect subnet
+    python3 rig/discover.py --subnet 10.0.0     # e.g. when joined to the Air's own AP
+    python3 rig/discover.py --host 192.168.2.50 # fingerprint one known host
 """
 
 import argparse
@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import add_log_args, configure_logging, get_logger
 

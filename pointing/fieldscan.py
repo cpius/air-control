@@ -4,8 +4,7 @@ each, looking for structure (a roofline, a window) in a featureless field.
 Every exit path sends scope_move ["none"] and restores the slew rate."""
 import os, argparse, sys, time, json
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/Users/madsdorup/ASICAP/air-control")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, metrics, save_png, superpix, boxmean
 from air_rpc import Air
 

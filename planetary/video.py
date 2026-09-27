@@ -31,11 +31,11 @@ Sequence:
 The AVI lands on the Air's eMMC; pull it over the SMB share
 (//<air-ip>/EMMC Images) or the app's file browser.
 
-    python3 video.py --host <air-ip> --key embedded_key.pem \
+    python3 planetary/video.py --host <air-ip> --key embedded_key.pem \
         --seconds 30 --exposure-ms 8 --gain 250 --roi 800x800
 
-    python3 video.py --host <air-ip> --key embedded_key.pem --roi-full
-    python3 video.py --host <air-ip> --key embedded_key.pem --preview-ser   # old path
+    python3 planetary/video.py --host <air-ip> --key embedded_key.pem --roi-full
+    python3 planetary/video.py --host <air-ip> --key embedded_key.pem --preview-ser   # old path
 
 NOTE: the native path below is reconstructed from the app and has NOT yet been
 run against a live Air (the battery died before it could be tested). The
@@ -52,7 +52,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger

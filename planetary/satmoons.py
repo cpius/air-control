@@ -8,12 +8,12 @@ saturated blob's centroid; if it is more than --tol arcsec from the target spot 
 Then: shift-and-mean on Saturn's centroid, asinh PNG, Horizons moon positions drawn (camera angle
 --east, scale --arcsec-per-px x bin) with the detected peak near each one.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u satmoons.py --frames 60 --exp 1.0 --gain 300 --east=0.997,0.079 --target-east 50
+    ASIAIR_HOST=192.168.1.36 python3 -u planetary/satmoons.py --frames 60 --exp 1.0 --gain 300 --east=0.997,0.079 --target-east 50
 """
 import argparse, datetime as dt, json, math, os, re, signal, sys, time, urllib.parse, urllib.request
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--frames", type=int, default=60)
@@ -30,7 +30,7 @@ ap.add_argument("--npy", nargs="*", default=None, help="skip the capture, stack 
 a = ap.parse_args()
 E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
 SC = a.arcsec_per_px * a.bin
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "satmoons"); os.makedirs(OUT, exist_ok=True)
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "satmoons"); os.makedirs(OUT, exist_ok=True)
 def log(s): print("%s  %s" % (time.strftime("%H:%M:%S"), s), flush=True)
 def _term(signum, _f): raise SystemExit(128 + signum)      # satloop stops children with SIGTERM: finish the move (tracking on, 'none')
 signal.signal(signal.SIGTERM, _term)

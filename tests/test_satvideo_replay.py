@@ -5,8 +5,8 @@ pulled 2026-09-16 clips -- no sockets, no mount, nothing leaves this Mac.
 Each scenario replays a way a night can go wrong and checks satvideo's exit
 status, whether it started/stopped the recorder, and what it printed.
 
-    python3 -u test_satvideo_replay.py                  # all scenarios
-    python3 -u test_satvideo_replay.py --only clip1-0917 good
+    python3 -u tests/test_satvideo_replay.py                  # all scenarios
+    python3 -u tests/test_satvideo_replay.py --only clip1-0917 good
 
 The 4800 stand-in behaves like the real socket where it matters: it serves
 whatever image it holds (the cached one until a capture delivers), repeats an
@@ -17,11 +17,12 @@ import argparse, io, os, runpy, signal, sys, tempfile, threading, time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+PLANETARY = os.path.join(HERE, "..", "planetary")
+sys.path[:0] = [os.path.join(HERE, "..", "lib"), PLANETARY]
 from clipcheck import Clip
 import daypipes, main_image, mount
 
-CLIPS = os.path.join(HERE, "..", "Saturn", "2026-09-16")
+CLIPS = os.path.join(HERE, "..", "..", "Saturn", "2026-09-16")
 SATURN = os.path.join(CLIPS, "short", "2026-09-17-002754-Alpheratz-Bin1 -10.1C.avi")   # Saturn in every frame, peak ~160
 LAST_GOOD = os.path.join(CLIPS, "short", "2026-09-17-003019-Alpheratz-Bin1 -10.3C.avi")  # the run that crashed at 00:30:52
 EMPTY = os.path.join(CLIPS, "2026-09-17-003222-Alpheratz-Bin1 -10.0C.avi")               # the first empty 300 s clip
@@ -190,7 +191,7 @@ def run(air, extra, sigterm_after_record=None):
     sys.argv, sys.stdout = argv, tee
     code = None
     try:
-        runpy.run_path(os.path.join(HERE, "satvideo.py"), run_name="__main__")
+        runpy.run_path(os.path.join(PLANETARY, "satvideo.py"), run_name="__main__")
         code = 0
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else 1

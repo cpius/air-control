@@ -4,13 +4,13 @@ before detection (they fooled planetfocus on 2026-09-16), the star is held near 
 measured Jacobian, and the metric is the star's size (equivalent diameter of the >5 sigma region, which
 shrinks to a few px at focus). Preview page, bin 2, 16-bit. Parks on the parabola vertex of the V.
 
-    EAF_MIN=15000 EAF_MAX=98000 ASIAIR_HOST=192.168.1.35 python3 -u starfocus.py \
+    EAF_MIN=15000 EAF_MAX=98000 ASIAIR_HOST=192.168.1.35 python3 -u focus/starfocus.py \
         --lo 57000 --hi 67000 --step 1000 --exp 2 --gain 300 --jacobian "23.0,-299.8,237.5,-27.5"
 """
 import argparse, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, focuser_pos, move_to
 from mount import Mount
 from session import png
@@ -24,7 +24,7 @@ ap.add_argument("--jacobian", required=True, help="px/arcmin bin 2: dx/dRA,dx/dD
 ap.add_argument("--recentre-px", type=float, default=200.0)
 ap.add_argument("--min-area", type=int, default=12); ap.add_argument("--nsig", type=float, default=5.0)
 ap.add_argument("--park", type=int, default=None, help="park here instead of the vertex")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "starfocus"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "starfocus"))
 a = ap.parse_args(); os.makedirs(a.outdir, exist_ok=True)
 J = np.array([float(v) for v in a.jacobian.split(",")]).reshape(2, 2)
 def log(s): print(f"{time.strftime('%H:%M:%S')} {s}", flush=True)

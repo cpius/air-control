@@ -4,15 +4,15 @@ them: mount register, track mode, EAF position/temperature. Auto-exposes on the
 99.5th percentile, saves every frame as 16-bit .npy + PNG, and prints per-frame
 levels, the lunar-surface / sky fractions and a texture metric.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u moonlook.py --page preview --bin 2 --exp-ms 10 --gain 100 --frames 2 --tag moon
-    ASIAIR_HOST=192.168.1.36 python3 -u moonlook.py --page focus --bin 1 --exp-ms 10 --gain 100 --frames 5 --every 0 --tag adc
-    ASIAIR_HOST=192.168.1.36 python3 -u moonlook.py --page preview --bin 2 --frames 10 --every 10 --tag drift   # timed series
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonlook.py --page preview --bin 2 --exp-ms 10 --gain 100 --frames 2 --tag moon
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonlook.py --page focus --bin 1 --exp-ms 10 --gain 100 --frames 5 --every 0 --tag adc
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonlook.py --page preview --bin 2 --frames 10 --every 10 --tag drift   # timed series
 
 --every S spaces the frames S seconds apart (wall clock), for drift series.
 """
 import argparse, json, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, focuser_pos, metrics
 from mount import Mount
 
@@ -26,7 +26,7 @@ ap.add_argument("--exp-min-ms", type=float, default=0.1); ap.add_argument("--exp
 ap.add_argument("--no-auto", action="store_true")
 ap.add_argument("--frames", type=int, default=2); ap.add_argument("--every", type=float, default=0.0)
 ap.add_argument("--tag", default="moon")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "moonlook"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "moonlook"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 BIAS = 3925.0 if a.bin == 2 else None       # bin-2 preview offset measured 2026-09-22; bin 1 measured from the frame's floor

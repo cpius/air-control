@@ -23,19 +23,19 @@ SAFETY: `ALT_FLOOR` is a hard stop. Twice on 2026-08-23 a drive put the tube
 below the horizon, once to Alt -59. Every move is verified and anything that
 would go under the floor is refused.
 
-    python3 horizon.py probe --az 190          # one vertical profile
-    python3 horizon.py survey --out horizon.json
+    python3 horizon/horizon.py probe --az 190          # one vertical profile
+    python3 horizon/horizon.py survey --out horizon.json
 """
 import argparse, json, math, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import numpy as np
 from air_rpc import Air
 from starhunt import Camera
 from airlog import add_log_args, configure_logging, get_logger
 
 log = get_logger("horizon")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 
 ALT_FLOOR = -1.0        # never point below this, ever
 RATE_INDEX = 4          # 20x

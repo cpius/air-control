@@ -40,11 +40,11 @@ Exit status (satloop.sh acts on it; only 0 prints RECORDED):
   4 too dim (cloud), not recorded        5 recording stopped: planet lost
   6 recording stopped: frames stalled    1 anything else (traceback)
 
-    ASIAIR_HOST=192.168.1.35 python3 -u satvideo.py --seconds 30 --roi 640 --exp-ms 18 --gain 250
+    ASIAIR_HOST=192.168.1.35 python3 -u planetary/satvideo.py --seconds 30 --roi 640 --exp-ms 18 --gain 250
 """
 import argparse, csv, math, os, signal, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from main_image import MainImage
 from mount import Mount

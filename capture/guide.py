@@ -15,8 +15,8 @@ Typical night-sky flow (each step needs the previous):
 State (get_app_state): Idle / Looping / Selected / Calibrating / Guiding /
 Paused / LostLock / Stopped.
 
-    python3 guide.py state
-    python3 guide.py dither         # show dither config
+    python3 capture/guide.py state
+    python3 capture/guide.py dither         # show dither config
 """
 
 import argparse
@@ -25,7 +25,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger

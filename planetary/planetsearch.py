@@ -11,12 +11,12 @@ not accumulate. Detector: tile medians against the FIRST frame's tile medians, f
 Found -> report sensor position and the register offset; not found -> back to the start.
 EAF always goes back to --eaf-focus; tracking always left on.
 
-    ASIAIR_HOST=192.168.1.36 EAF_MIN=40000 EAF_MAX=70000 python3 -u planetsearch.py --eaf-focus 60250 --eaf-search 45250 --rings 4
+    ASIAIR_HOST=192.168.1.36 EAF_MIN=40000 EAF_MAX=70000 python3 -u planetary/planetsearch.py --eaf-focus 60250 --eaf-search 45250 --rings 4
 """
 import argparse, json, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--eaf-focus", type=int, required=True, help="EAF position to return to")
@@ -36,7 +36,7 @@ ap.add_argument("--arcsec-per-px", type=float, default=0.110, help="--centre: bi
 a = ap.parse_args()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "..", "telemetry", time.strftime("%Y-%m-%d"), "planetsearch"); os.makedirs(OUT, exist_ok=True)
+OUT = os.path.join(HERE, "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "planetsearch"); os.makedirs(OUT, exist_ok=True)
 T0 = time.time()
 def log(s): print("%s %+6.0fs  %s" % (time.strftime("%H:%M:%S"), time.time() - T0, s), flush=True)
 def res(r): return r.get("result", r) if isinstance(r, dict) else r

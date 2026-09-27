@@ -13,7 +13,7 @@ so its only position is the register. The register must be true or the map lies.
 """
 import json, math, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from airlog import get_logger
 from skysurvey import Rig, expose, plate_solve, radec_to_altaz

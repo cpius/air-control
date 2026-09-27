@@ -24,9 +24,11 @@ import hashlib
 import io
 import os
 import struct
+import sys
 import time
 import zipfile
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from airlog import get_logger
 from air_rpc import Air
 from main_image import MainImage

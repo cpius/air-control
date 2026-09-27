@@ -3,11 +3,11 @@
 blob (peak -> --target of full well), then a bin-1 preview frame, saved as
 16-bit .npy + full PNG + a crop around the planet.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u planetshot.py --name saturn --exp-ms 60 --gain 300
+    ASIAIR_HOST=192.168.1.36 python3 -u planetary/planetshot.py --name saturn --exp-ms 60 --gain 300
 """
 import argparse, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, focuser_pos
 from findstar import blobs
 from mount import Mount
@@ -19,7 +19,7 @@ ap.add_argument("--target", type=float, default=0.6, help="fraction of full well
 ap.add_argument("--exp-max", type=float, default=500.0); ap.add_argument("--exp-min", type=float, default=2.0)
 ap.add_argument("--bin", type=int, default=1)
 ap.add_argument("--crop", type=int, default=600, help="crop size (bin-1 px) around the planet")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "shots"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "shots"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 FULL = 65535.0

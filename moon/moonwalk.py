@@ -3,7 +3,7 @@
 per step, printing the scattered-light level -- for "the Moon is up and to the
 right of the scope, not far": no guesswork about the size of the offset.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u moonwalk.py --ddec 0.5 --dra -0.55 --steps 10
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonwalk.py --ddec 0.5 --dra -0.55 --steps 10
 
 --dra is ON-SKY degrees per step (negative = west), --ddec degrees per step.
 Stops at --steps, when the level exceeds --stop-factor x the first frame, or

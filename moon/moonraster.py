@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find the Moon by sweeping rows of sky with the video stream running.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u moonraster.py --ra 21.077 --dec -19.19 \
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonraster.py --ra 21.077 --dec -19.19 \
         --dec-lo -2 --dec-hi 4 --ra-lo -6 --ra-hi 3 --row-step 25
 
 Why: a 31' disc is unmissable even badly defocused, whereas scattered moonlight
@@ -17,7 +17,7 @@ Guards: --min-alt, per-row and total wall-clock caps, stop in a finally.
 """
 import argparse, math, os, signal, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from main_image import MainImage
 from planetdetect import FreshFrames
@@ -38,7 +38,7 @@ ap.add_argument("--bright-frac", type=float, default=0.02, help="fraction of pix
 ap.add_argument("--min-alt", type=float, default=8.0)
 ap.add_argument("--row-cap", type=float, default=90.0, help="seconds per row before giving up on it")
 ap.add_argument("--total-cap", type=float, default=900.0)
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "moonraster"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "moonraster"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 CHIP = (3840, 2160)

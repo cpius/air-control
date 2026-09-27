@@ -4,7 +4,7 @@ Jacobian from register offsets to pixels), then sync the register to the
 star's catalogue position. Assumes goto works (it did tonight, 2026-09-10)."""
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from findstar import STARS, jnow, blobs
 from mount import Mount

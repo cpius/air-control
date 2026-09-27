@@ -3,7 +3,7 @@
 +1 annulus / -1 hole template of KNOWN outer radius with (+1 bright, -1 dark, 0 outside the frame).
 The centre may lie outside the frame. Returns sensor px.
 
-    python3 donutcentre.py --npy telemetry/2026-09-26/planetsearch/213640_008.npy --sensor-per-px 4 --radius-sensor 2295
+    python3 planetary/donutcentre.py --npy telemetry/2026-09-26/planetsearch/213640_008.npy --sensor-per-px 4 --radius-sensor 2295
 """
 import argparse
 import numpy as np

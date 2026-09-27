@@ -11,7 +11,7 @@ short by cloud, battery or the mount, and if it is, the west and north-west --
 where the Plough and later Deneb/Vega sit -- are already done.
 """
 import os, sys, time, traceback
-sys.path.insert(0, '/Users/madsdorup/ASICAP/air-control')
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import ladder
 
 #  west/NW first, then swing south-west, then north, then the arc edges

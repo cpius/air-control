@@ -9,13 +9,13 @@ power-cycle and a full restore_mount.py is needed instead.
 """
 import datetime, json, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from airlog import get_logger
 
 log = get_logger("recover")
 HOST = os.environ.get("ASIAIR_HOST", "192.168.1.35")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 LAT, LON = 55.689444, 12.555278
 
 

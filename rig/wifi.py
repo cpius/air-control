@@ -18,19 +18,19 @@ The app gives no band control, but the firmware does:
 Note `pi_set_5g` (CMD_SET_AP_5G) is the band of the Air's OWN hotspot, not the
 station link -- a different knob that is easy to mistake for this one.
 
-    python3 wifi.py state
-    python3 wifi.py scan            # SSIDs with frequency, so you can see the bands
-    python3 wifi.py list            # saved networks
-    python3 wifi.py select <arg>    # join one (MOVES THE LINK -- may drop you)
+    python3 rig/wifi.py state
+    python3 rig/wifi.py scan            # SSIDs with frequency, so you can see the bands
+    python3 rig/wifi.py list            # saved networks
+    python3 rig/wifi.py select <arg>    # join one (MOVES THE LINK -- may drop you)
 """
 import argparse, json, os, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger
 
 log = get_logger("wifi")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 
 
 def band(freq):

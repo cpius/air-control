@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive the horizon survey over a grid of true (az, alt)."""
-import sys, time
-sys.path.insert(0, '/Users/madsdorup/ASICAP/air-control')
+import os, sys, time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from survey import Survey
 
 OUT = "/Users/madsdorup/ASICAP/survey-raw.jsonl"

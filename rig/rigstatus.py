@@ -5,21 +5,21 @@ Reads: mount register + sidereal time (checked against a locally computed LST), 
 EAF position/temperature, Wi-Fi, camera state/subframe. Every RPC name is checked against
 CMD_METHODS.tsv first -- never probe names (a 103 proves nothing).
 
-    ASIAIR_HOST=192.168.1.35 python3 -u rigstatus.py --set-clocks
+    ASIAIR_HOST=192.168.1.35 python3 -u rig/rigstatus.py --set-clocks
 """
 import argparse, datetime as dt, json, os, sys, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser()
 ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST", "192.168.1.35"))
-ap.add_argument("--key", default=os.path.join(HERE, "embedded_key.pem"))
+ap.add_argument("--key", default=os.path.join(HERE, "..", "embedded_key.pem"))
 ap.add_argument("--set-clocks", action="store_true", help="push this Mac's UTC to the Air (pi_set_time) and the mount (scope_set_time)")
 ap.add_argument("--lon", type=float, default=12.5556)
 a = ap.parse_args()
 
-known = {line.split("\t")[0].strip() for line in open(os.path.join(HERE, "CMD_METHODS.tsv"))}
+known = {line.split("\t")[0].strip() for line in open(os.path.join(HERE, "..", "docs", "CMD_METHODS.tsv"))}
 
 def res(r):
     return r.get("result", r.get("error", r)) if isinstance(r, dict) else r

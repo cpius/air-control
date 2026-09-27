@@ -9,18 +9,18 @@ Order is deliberate: clocks go in BEFORE homing, because the mount builds its
 frame from the clock it has, and homing under a wrong clock is what started a
 whole evening of bad pointing.
 
-    python3 restore_mount.py            # restore, then test goto
-    python3 restore_mount.py --no-test  # restore only
+    python3 rig/restore_mount.py            # restore, then test goto
+    python3 rig/restore_mount.py --no-test  # restore only
 """
 import argparse, datetime, json, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger
 
 log = get_logger("restore")
 HOST = os.environ.get("ASIAIR_HOST", "192.168.1.35")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 LAT, LON = 55.689444, 12.555278
 GUIDE_RATE = 0.9          # 0.25 silently breaks guide calibration
 

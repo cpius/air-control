@@ -6,10 +6,10 @@ mount dropping off the Air (code 314/315) and, once re-attached, a clock reading
 When that happens: set_connected(mount), restore the site, scope_set_time from this Mac,
 verify sidereal_time against a computed LST, then exit 0 so the caller can home and goto.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u mountwatch.py --lat 55.6896 --lon 12.5551 --max-wait 900
+    ASIAIR_HOST=192.168.1.35 python3 -u rig/mountwatch.py --lat 55.6896 --lon 12.5551 --max-wait 900
 """
 import argparse, datetime as dt, json, os, sys, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 
 ap = argparse.ArgumentParser()

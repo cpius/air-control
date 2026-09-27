@@ -6,4 +6,4 @@ cd /Users/madsdorup/ASICAP/air-control
 while pgrep -f "ladder_run.py 195" > /dev/null; do sleep 5; done
 echo "" >> $HOME/ASICAP/west-ladder.log
 echo "########## APPENDED: high-altitude probe, alt 70/80/85" >> $HOME/ASICAP/west-ladder.log
-python3 -u high_probe.py >> $HOME/ASICAP/west-ladder.log 2>&1
+python3 -u horizon/high_probe.py >> $HOME/ASICAP/west-ladder.log 2>&1

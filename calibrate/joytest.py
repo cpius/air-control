@@ -14,11 +14,11 @@ logged next to the register's own change. A 2 s tracking pause first calibrates 
 (the pointing moves east at ~14.5"/s under Lunar tracking). Every direction is sent twice in a row so
 the first move after a reversal (backlash) is visible on its own.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u joytest.py --east=-0.070,-0.998 --arcsec-per-px 0.1866
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/joytest.py --east=-0.070,-0.998 --arcsec-per-px 0.1866
 """
 import argparse, csv, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from daypipes import Pipes, host, log
 from moonreg import bandpass, measure_shift
@@ -31,7 +31,7 @@ ap.add_argument("--host-rates", default="0:0.25,0:1.0,2:0.25,2:1.0,4:0.1", help=
 ap.add_argument("--timed-rates", default="0,2", help="slew-rate indices for the mount-timed [dir, 1] form")
 ap.add_argument("--dirs", default="north,south,east,west")
 ap.add_argument("--settle", type=float, default=0.8, help="s after a move before the discarded frame")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "joytest"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "joytest"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])

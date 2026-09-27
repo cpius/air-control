@@ -31,10 +31,10 @@ Moon altitude and illuminated fraction come from the same low-precision
 ephemeris. They are good to a fraction of a degree, which is far beyond what
 "is the Moon up and how bad is it" requires.
 
-    python3 weather.py                      # human-readable, current conditions
-    python3 weather.py --json               # the full state dict, for the dashboard
-    python3 weather.py --radar              # add RainViewer frame list + tile URLs
-    python3 weather.py --watch 300          # re-poll every 5 minutes
+    python3 dashboard/weather.py                      # human-readable, current conditions
+    python3 dashboard/weather.py --json               # the full state dict, for the dashboard
+    python3 dashboard/weather.py --radar              # add RainViewer frame list + tile URLs
+    python3 dashboard/weather.py --watch 300          # re-poll every 5 minutes
 """
 
 import argparse
@@ -45,7 +45,7 @@ import os
 import sys
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import add_log_args, configure_logging, get_logger
 

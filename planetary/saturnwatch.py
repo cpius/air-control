@@ -11,7 +11,7 @@ peak, it is behind cloud and nothing is recorded. Exit 0 once a clip is on
 the Air. The sync time is kept in --state so the drift prediction survives
 between runs.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u saturnwatch.py --cycles 1 --every 300
+    ASIAIR_HOST=192.168.1.35 python3 -u planetary/saturnwatch.py --cycles 1 --every 300
 """
 import argparse, json, os, subprocess, sys, time
 
@@ -31,6 +31,7 @@ ap.add_argument("--log", default="/Users/madsdorup/ASICAP/telemetry/2026-09-15_s
 ap.add_argument("--search-ra", type=float, default=8.0); ap.add_argument("--search-dec", type=float, default=9.0)
 a = ap.parse_args()
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)   # children run from the repo root, as before the move
 ENV = dict(os.environ, ASIAIR_HOST=os.environ.get("ASIAIR_HOST", "192.168.1.35"), EAF_MIN="500", EAF_MAX="99000")
 KEEP = ("VERDICT", "centred", "scope_sync", "EXIT", "ERROR", "sky @", "exposure test", "ABORT", "RECORDED", "hold:",
         "correction", "exposure used", "Traceback", "lost the planet", "search:")
@@ -43,7 +44,7 @@ def log(msg):
 
 def run(cmd, timeout):
     out = []
-    p = subprocess.Popen(cmd, cwd=HERE, env=ENV, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    p = subprocess.Popen(cmd, cwd=ROOT, env=ENV, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     t0 = time.time()
     for line in p.stdout:
         line = line.rstrip()
@@ -63,7 +64,7 @@ for cyc in range(1, a.cycles + 1):
     dt = (time.time() - state["t_sync"]) / 60.0
     pred = (a.drift_ra * dt, a.drift_dec * dt)
     log("cycle %d: %.1f min since the last sync -> commanding RA %+.1f' Dec %+.1f' from nominal" % (cyc, dt, pred[0], pred[1]))
-    rc, out = run(["python3", "-u", "cloudcheck.py", "--ra", str(a.ra), "--dec", str(a.dec), "--name", "Saturn",
+    rc, out = run(["python3", "-u", "planetary/cloudcheck.py", "--ra", str(a.ra), "--dec", str(a.dec), "--name", "Saturn",
                    "--pred-dra", "%.2f" % pred[0], "--pred-ddec", "%.2f" % pred[1], "--jacobian", a.jacobian2,
                    "--planet-peak", "300", "--planet-area", "200", "--cloud-rate", "300", "--no-solve",
                    "--search-ra", str(a.search_ra), "--search-dec", str(a.search_dec), "--step-ra", "8", "--step-dec", "4.5", "--max-checks", "1"], 420)
@@ -71,7 +72,7 @@ for cyc in range(1, a.cycles + 1):
         state["t_sync"] = time.time()
         json.dump(state, open(a.state, "w"))
         log("  centred and synced -> recorder")
-        rc2, out2 = run(["python3", "-u", "satvideo.py", "--seconds", str(a.seconds), "--roi", str(a.roi),
+        rc2, out2 = run(["python3", "-u", "planetary/satvideo.py", "--seconds", str(a.seconds), "--roi", str(a.roi),
                          "--exp-ms", str(a.exp_ms), "--gain", str(a.gain), "--jacobian", a.jacobian1, "--deadband", "60",
                          "--max-dim-exp", str(a.max_dim_exp), "--max-dim-gain", str(a.max_dim_gain)], 300)
         if "RECORDED" in out2:

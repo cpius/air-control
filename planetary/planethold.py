@@ -5,12 +5,12 @@ centroid; beyond --tol arcsec: Dec by a 20x pulse (312"/s), RA east by pausing t
 RA west by a pulse. Runs --seconds, or until --stop-file exists. SIGTERM/Ctrl-C finish the current
 move properly (tracking back on, 'none' sent). Exits 2 after --lost frames without the planet.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u planethold.py --east=0.992,0.126 --arcsec-per-px 0.0998 --seconds 1800
+    ASIAIR_HOST=192.168.1.36 python3 -u planetary/planethold.py --east=0.992,0.126 --arcsec-per-px 0.0998 --seconds 1800
 """
 import argparse, os, signal, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from daypipes import Pipes, host
 

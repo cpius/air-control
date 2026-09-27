@@ -13,8 +13,8 @@ dashboard: it will be trusted. So the freeze time is the loudest element on the
 page, every relative time ("4s ago") is rendered as an absolute clock time, and
 the live-status chip is replaced by a stamp saying when the shutter closed.
 
-    python3 snapshot.py                      # -> dashboard/snapshot.html
-    python3 snapshot.py --from http://localhost:8765 --out /tmp/snap.html
+    python3 dashboard/snapshot.py                      # -> dashboard/snapshot.html
+    python3 dashboard/snapshot.py --from http://localhost:8765 --out /tmp/snap.html
 """
 
 import argparse
@@ -27,7 +27,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import add_log_args, configure_logging, get_logger
 

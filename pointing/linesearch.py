@@ -3,7 +3,7 @@
 (then Dec rows) in field-sized hops until a saturated blob appears, then sync."""
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, move_to, focuser_pos
 from findstar import STARS, jnow, blobs
 from mount import Mount

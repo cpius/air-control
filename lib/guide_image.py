@@ -40,9 +40,9 @@ read 0/65535/65535 while no star is selected; they carry the Air's own guide
 star measurement once one is locked, which is what makes this useful for
 checking guide-side focus rather than only for looking.
 
-    python3 guide_image.py --host <air-ip>              # stream frame stats
-    python3 guide_image.py --host <air-ip> --save 3     # save the first 3 frames
-    python3 guide_image.py --host <air-ip> --loop       # bring the stream up first
+    python3 lib/guide_image.py --host <air-ip>              # stream frame stats
+    python3 lib/guide_image.py --host <air-ip> --save 3     # save the first 3 frames
+    python3 lib/guide_image.py --host <air-ip> --loop       # bring the stream up first
 """
 
 import argparse

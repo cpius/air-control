@@ -103,7 +103,7 @@ def fmt(s, span=250):
                      "DIFFERENT one and may be far out")
     lines.append("  " + s["temp_note"])
     lines.append("  verify before trusting it:")
-    lines.append("    python3 focuscompare.py --pos %d,%d,%d"
+    lines.append("    python3 focus/focuscompare.py --pos %d,%d,%d"
                  % (s["position"] - span, s["position"], s["position"] + span))
     return "\n".join(lines)
 

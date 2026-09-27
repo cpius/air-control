@@ -3,7 +3,7 @@
 register GOTOs around the current pointing, one preview frame per point, stop
 at the first frame that shows lunar surface.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u moonspiral.py --spacing 20 --rings 3 --exp-ms 50 --gain 100
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/moonspiral.py --spacing 20 --rings 3 --exp-ms 50 --gain 100
 
 Why gotos and not joystick nudges (moonclimb.py): the first nudge after a
 direction change under-delivers (0.3' asked 8', 2026-09-27), so a probe that
@@ -15,7 +15,7 @@ disc of radius 16' inside the searched square is always hit.
 """
 import argparse, json, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from mount import Mount
 
@@ -25,7 +25,7 @@ ap.add_argument("--spacing", type=float, default=20.0, help="grid spacing, arcmi
 ap.add_argument("--rings", type=int, default=3, help="square rings around the start (3 -> 7x7 = 49 points)")
 ap.add_argument("--disc", type=float, default=4000.0, help="clipped-mean level (ADU over bias) meaning surface fills the frame")
 ap.add_argument("--min-alt", type=float, default=8.0)
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "moonspiral"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "moonspiral"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 

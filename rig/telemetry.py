@@ -20,10 +20,10 @@ so the log captures the moment power went away rather than simply stopping.
 Rows append to <dir>/power-YYYY-MM-DD.csv (one file per night, named for the
 local date at start), so a voltage curve accumulates across sessions.
 
-    python3 telemetry.py --host <air-ip>
-    python3 telemetry.py --host <air-ip> --key embedded_key.pem
-    python3 telemetry.py --host <air-ip> --interval 30 --dir ~/ASICAP/telemetry
-    python3 telemetry.py --host <air-ip> --once        # single reading, then exit
+    python3 rig/telemetry.py --host <air-ip>
+    python3 rig/telemetry.py --host <air-ip> --key embedded_key.pem
+    python3 rig/telemetry.py --host <air-ip> --interval 30 --dir ~/ASICAP/telemetry
+    python3 rig/telemetry.py --host <air-ip> --once        # single reading, then exit
 
 Open question this exists to answer: does the voltage sag gradually (a real
 fuel gauge, warn on a threshold) or hold flat and then collapse (a regulated
@@ -39,7 +39,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger

@@ -7,7 +7,7 @@ Frame-to-sky transform: measured 2026-09-02 from Titan/Rhea/Iapetus against
 Horizons (preview page, full res): 2.113 px/arcsec, rotation 164.9 deg,
 mirrored. If the camera is rotated, re-fit it (see saturn-moons memory).
 
-    python3 centre_planet.py --host <air-ip> --goto 0.90161 2.90708
+    python3 planetary/centre_planet.py --host <air-ip> --goto 0.90161 2.90708
 """
 import argparse
 import math
@@ -17,7 +17,7 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 
 S_PX_PER_ARCSEC = 2.113
@@ -48,7 +48,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--goto", nargs=2, type=float, metavar=("RA_H", "DEC_D"), help="JNow/apparent")
     ap.add_argument("--exp", type=float, default=0.1)
     ap.add_argument("--gain", type=int, default=250)

@@ -3,8 +3,8 @@
 fit the Dec drift. Pointing check comes free: every row also prints the
 mount register next to the solved position.
 
-    python3 drift.py --host <air-ip> --minutes 6            # where it points now
-    python3 drift.py --host <air-ip> --goto 23.4 28 --minutes 6
+    python3 pointing/drift.py --host <air-ip> --minutes 6            # where it points now
+    python3 pointing/drift.py --host <air-ip> --goto 23.4 28 --minutes 6
 
 Geometry (from the 2026-08-25 lesson): the Dec drift rate measures ONE
 component of the polar error, chosen by hour angle —
@@ -22,7 +22,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skysurvey as ss
 from mount import Mount
 
@@ -47,7 +47,7 @@ def fit(ts, ys):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"))
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--minutes", type=float, default=6.0)
     ap.add_argument("--exp", type=float, default=3.0)
     ap.add_argument("--gain", type=int, default=250)

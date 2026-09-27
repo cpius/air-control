@@ -3,8 +3,8 @@
 mount's own Alt/Az readout -- for "the Moon is a bit up and to the right of the
 tube": the person at the rig sees alt/az, not RA/Dec.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u altaznudge.py --up 2 --right 3      # degrees
-    ASIAIR_HOST=192.168.1.36 python3 -u altaznudge.py --down 0.5 --left 1
+    ASIAIR_HOST=192.168.1.36 python3 -u pointing/altaznudge.py --up 2 --right 3      # degrees
+    ASIAIR_HOST=192.168.1.36 python3 -u pointing/altaznudge.py --down 0.5 --left 1
 
 "right" = increasing azimuth (toward the south when facing east/south-east).
 The response of the two axes to 'north' and 'east' pulses is measured with two
@@ -13,7 +13,7 @@ chunks with re-reads until within --tol. Guards: --min-alt, chunks <= --chunk s.
 """
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from joystick import Joystick
 
 ap = argparse.ArgumentParser()

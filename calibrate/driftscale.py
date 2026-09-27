@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plate scale (and so focal length) from the Moon's drift with tracking OFF.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u driftscale.py --drift-s 60 --exp-ms 10 --gain 220
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/driftscale.py --drift-s 60 --exp-ms 10 --gain 220
 
 With tracking off the mount is fixed to the ground, so the image slides at the
 Moon's apparent (refracted) speed in the alt/az frame -- ~14.3"/s, known from
@@ -29,7 +29,7 @@ motion) on the sensor -- the camera angle comes free.
 import argparse, datetime as dt, json, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import moonephem as me
 from moonreg import bandpass, measure_shift
 
@@ -44,7 +44,7 @@ ap.add_argument("--lat", type=float, default=55.689444); ap.add_argument("--lon"
 ap.add_argument("--temp-c", type=float, default=12.0); ap.add_argument("--pressure-hpa", type=float, default=1013.0)
 ap.add_argument("--no-return", action="store_true", help="do not goto back to the start position afterwards")
 ap.add_argument("--analyse", default=None, help="re-analyse a saved .npz run instead of taking frames")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "driftscale"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "driftscale"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 D2R = math.pi / 180
