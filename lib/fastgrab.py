@@ -13,18 +13,17 @@ So: start the exposure, wait for that event, download immediately, then
 stop_solve to kill the annotate before it eats the next frame. ~6 s a frame
 instead of 60-300 s.
 """
-import sys, time
+import argparse, sys, time
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 from session import Session
-from autofocus import log, HOST, KEY
+from daypipes import host as air_host, KEY, log
 
 class Grabber:
-    def __init__(self, exp=1.0, gain=250, binning=2, host=HOST, key=KEY):
+    def __init__(self, exp=1.0, gain=250, binning=2, host=None, key=KEY):
         self.exp = exp
-        self.s = Session(host, key, with_mount=False)
+        self.s = Session(host or air_host(), key, with_mount=False)
         self.s.c("stop_solve"); self.s.c("stop_exposure"); time.sleep(1.2)
         self.s.c("set_page", ["preview"]); time.sleep(1.0)
         self.s.c("set_camera_bin", [int(binning)])
@@ -71,9 +70,15 @@ class Grabber:
         self.s.close()
 
 if __name__ == "__main__":
-    g = Grabber(exp=1.0, gain=250, binning=2)
+    ap = argparse.ArgumentParser(description="Time a few preview-page grabs.")
+    ap.add_argument("--exp", type=float, default=1.0, help="exposure, s")
+    ap.add_argument("--gain", type=int, default=250)
+    ap.add_argument("--bin", type=int, default=2)
+    ap.add_argument("--frames", type=int, default=4)
+    a = ap.parse_args()
+    g = Grabber(exp=a.exp, gain=a.gain, binning=a.bin)
     try:
-        for i in range(4):
+        for i in range(a.frames):
             t = time.time()
             img, w, h = g.frame()
             log("frame %d: %dx%d in %.1fs  med=%.0f max=%.0f" % (i+1, w, h, time.time()-t,

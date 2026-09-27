@@ -19,12 +19,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import numpy as np
 from fastgrab import Grabber
-from autofocus import log, Beat, boxblur
+from daypipes import log, boxmean
 
 HOT = [(1919, 336), (125, 48)]        # measured, stable, bin2 coordinates
 
 def count_sources(img, nsig=8.0, sep=40):
-    sm = boxblur(img, 5)
+    sm = boxmean(img, 5)
     bg = float(np.median(sm))
     sig = max(0.3, 1.4826 * float(np.median(np.abs(sm[::5, ::5] - bg))))
     mask = sm > bg + nsig * sig
