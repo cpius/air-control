@@ -8,13 +8,13 @@ therefore sky-east on the sensor, its length checks the plate scale, and with th
 angle q it gives the zenith direction -- which is what the ADC has to be lined up with.
 No slew; the mount is always left on Lunar.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u ratestep.py --page preview --bin 1 --exp-ms 100 --every 5 --seg-lunar 30 --seg-sidereal 45 --adc-br=-21.3,14.2
-    python3 ratestep.py --analyse telemetry/2026-09-26/ratestep/195900_ratestep.json --adc-br=-21.3,14.2
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/ratestep.py --page preview --bin 1 --exp-ms 100 --every 5 --seg-lunar 30 --seg-sidereal 45 --adc-br=-21.3,14.2
+    python3 calibrate/ratestep.py --analyse telemetry/2026-09-26/ratestep/195900_ratestep.json --adc-br=-21.3,14.2
 """
 import argparse, datetime as dt, json, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from moonreg import bandpass, measure_shift
 
 ap = argparse.ArgumentParser()
@@ -54,7 +54,7 @@ def track_mode(host, name=None):
 def take():
     from daypipes import Pipes, host
     h = host()
-    outdir = os.path.join(HERE, "..", "telemetry", time.strftime("%Y-%m-%d"), "ratestep")
+    outdir = os.path.join(HERE, "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "ratestep")
     os.makedirs(outdir, exist_ok=True)
     stamp = time.strftime("%H%M%S")
     rec = dict(host=h, page=a.page, bin=a.bin, exp_ms=a.exp_ms, gain=a.gain, rows=[], switches=[])

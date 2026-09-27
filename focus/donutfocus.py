@@ -13,13 +13,13 @@ raises the brightness); the first step is upward. It stops when the disc is
 smaller than --done px across (hand over to planetfocus.py) or the EAF limits
 (EAF_MIN/EAF_MAX) are reached.
 
-    EAF_MIN=15000 EAF_MAX=98000 ASIAIR_HOST=... python3 -u donutfocus.py \
+    EAF_MIN=15000 EAF_MAX=98000 ASIAIR_HOST=... python3 -u focus/donutfocus.py \
         --ra 0.8545 --dec 2.575 --pred-dra -1 --pred-ddec -27 --step 4000
 """
 import argparse, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, move_to, focuser_pos
 from mount import Mount
 

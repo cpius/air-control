@@ -1,5 +1,5 @@
-import sys, time
-sys.path.insert(0,'/Users/madsdorup/ASICAP/air-control')
+import os, sys, time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from survey2 import Survey2
 OUT="/Users/madsdorup/ASICAP/survey2-raw.jsonl"
 AZ=[0,20,40,60,80,100,120,140,160,180,200,220,240,260,280,300,320,340]

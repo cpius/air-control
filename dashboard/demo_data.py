@@ -12,8 +12,8 @@ and the dashboard falls back to real data with no configuration change.
 PNGs are encoded here in pure stdlib (zlib + struct). PIL is not installed on
 this machine, and the rest of the toolkit is deliberately stdlib-only.
 
-    python3 demo_data.py            # write it
-    python3 demo_data.py --clean    # remove it
+    python3 dashboard/demo_data.py            # write it
+    python3 dashboard/demo_data.py --clean    # remove it
 """
 
 import argparse
@@ -151,7 +151,7 @@ def main():
     print("focus run  ", d, "(%d steps)" % len(os.listdir(d)))
     p2 = preview(os.path.join(DEMO, "preview", "NGC6946-preview.png"))
     print("preview    ", p2)
-    print("\nthese are SYNTHETIC. delete with: python3 demo_data.py --clean")
+    print("\nthese are SYNTHETIC. delete with: python3 dashboard/demo_data.py --clean")
 
 
 if __name__ == "__main__":

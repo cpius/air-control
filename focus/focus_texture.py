@@ -5,7 +5,7 @@ a band-pass filtered frame, normalised by its mean brightness. Out-of-focus
 craters are soft rings, so band-pass power at a few-pixel scale rises steadily
 toward focus and is capped only by seeing.
 
-    python3 focus_texture.py --lo 20000 --hi 100000 --step 8000 --exp 0.1
+    python3 focus/focus_texture.py --lo 20000 --hi 100000 --step 8000 --exp 0.1
 """
 import argparse
 import os
@@ -15,7 +15,7 @@ import time
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 from focuscompare import move_to
 
@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--lo", type=int, required=True)
     ap.add_argument("--hi", type=int, required=True)
     ap.add_argument("--step", type=int, default=8000)

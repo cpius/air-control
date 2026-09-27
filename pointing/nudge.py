@@ -4,8 +4,7 @@ Reports the rows (sensor px) of the strongest bright->dark and dark->bright
 horizontal edges in the column-averaged profile."""
 import os, argparse, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/Users/madsdorup/ASICAP/air-control")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, superpix
 from air_rpc import Air
 

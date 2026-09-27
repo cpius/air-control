@@ -10,7 +10,7 @@ autocorrelation of a band-passed frame -- a blur scale in pixels. Minimise it.
 Positions are visited in an interleaved order and twice, so a slow change in
 seeing or cloud cannot masquerade as a curve.
 
-    python3 focus_blurscale.py --pos 0,25000,50000,75000,100000 --rounds 2
+    python3 focus/focus_blurscale.py --pos 0,25000,50000,75000,100000 --rounds 2
 """
 import argparse
 import os
@@ -20,7 +20,7 @@ import time
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 from focuscompare import move_to
 
@@ -71,7 +71,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--pos", required=True, help="comma-separated focuser positions")
     ap.add_argument("--rounds", type=int, default=2)
     ap.add_argument("--frames", type=int, default=2)

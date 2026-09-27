@@ -28,7 +28,7 @@ Three things make this work in practice:
 Frames come from the native MainImageSocket (port 4800) rather than Alpaca, so
 they are free of the Alpaca driver's leading-quarter scaling artifact.
 
-    python3 starhunt.py --host <air-ip> --key embedded_key.pem --rings 2
+    python3 lib/starhunt.py --host <air-ip> --key embedded_key.pem --rings 2
 """
 
 import argparse

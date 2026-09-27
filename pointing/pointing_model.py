@@ -11,7 +11,7 @@ residual everywhere else that this model predicts.
 Fit the two axis errors from measured offsets (solved - register, arcmin on
 the sky), then predict the offset at any target for a given sync point:
 
-    python3 pointing_model.py --lst 20.6132 \
+    python3 pointing/pointing_model.py --lst 20.6132 \
         --meas 0.7454,8.9378,none,-242.2,30.1 \
         --predict -3.501,2.575,0.8510,8.9378
 

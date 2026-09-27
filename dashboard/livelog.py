@@ -3,14 +3,14 @@
 telemetry/, and a clock -- refreshed every 2 s without reloading. Stand-in for the
 dashboard.py that vanished on 2026-09-14.
 
-    python3 -u livelog.py --log ../telemetry/2026-09-16_session.log --bind 0.0.0.0 --port 8765
+    python3 -u dashboard/livelog.py --log ../telemetry/2026-09-16_session.log --bind 0.0.0.0 --port 8765
 """
 import argparse, glob, json, os, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))   # ~/ASICAP, above the repo
 ap = argparse.ArgumentParser()
 ap.add_argument("--log", required=True)
 ap.add_argument("--bind", default="0.0.0.0")

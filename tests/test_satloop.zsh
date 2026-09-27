@@ -2,18 +2,18 @@
 # Exercise satloop.sh's control flow with stub children in a throwaway copy of the
 # tree -- no Air, no network (the sole-control check runs against 127.0.0.1).
 #
-#   ./test_satloop.zsh
+#   tests/test_satloop.zsh
 #
 # One stub stands in for satvideo.py, cloudcheck.py and clipcheck.py; each call
 # takes the next exit code from codes.<name> and appends "<name> <code> <pid>" to calls.
 HERE=${0:A:h}
 T=$(mktemp -d ${TMPDIR:-/tmp}/satloop_test.XXXXXX)
-mkdir -p $T/air-control $T/telemetry
-cp $HERE/satloop.sh $T/air-control/
+mkdir -p $T/air-control/planetary $T/telemetry
+cp $HERE/../planetary/satloop.sh $T/air-control/planetary/
 cat > $T/stub.py <<'EOF'
 import os, signal, sys, time
 name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-root = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
+root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
 path = os.path.join(root, "codes." + name)
 codes = open(path).read().split() if os.path.exists(path) else []
 code = int(codes[0]) if codes else 0
@@ -42,9 +42,9 @@ print({"satvideo": {0: "RECORDED 2.0s ; planet in 10 of 10 fresh frames", 1: "Tr
        "cloudcheck": {0: "VERDICT VISIBLE (check 1): stub"}}[name].get(code, "exit %d" % code), flush=True)
 sys.exit(code)
 EOF
-cp $T/stub.py $T/air-control/satvideo.py; cp $T/stub.py $T/air-control/cloudcheck.py; cp $T/stub.py $T/air-control/clipcheck.py
+cp $T/stub.py $T/air-control/planetary/satvideo.py; cp $T/stub.py $T/air-control/planetary/cloudcheck.py; cp $T/stub.py $T/air-control/planetary/clipcheck.py
 
-LOOP=$T/air-control/satloop.sh
+LOOP=$T/air-control/planetary/satloop.sh
 pass=0; fail=0
 prep() {        # prep "<satvideo codes>" "<clipcheck codes>" "<cloudcheck codes>"
   rm -f $T/codes.*(N) $T/calls $T/out $T/telemetry/satloop.lock

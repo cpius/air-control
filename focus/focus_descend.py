@@ -5,7 +5,7 @@ and measure the blur scale (focus_blurscale) at every step. Prints positions on
 an absolute scale (offset tracked through every re-label) so the result is one
 continuous curve.
 
-    python3 focus_descend.py --direction down --step 20000 --stop-after-rise 2 --limit -60000 --offset 160000
+    python3 focus/focus_descend.py --direction down --step 20000 --stop-after-rise 2 --limit -60000 --offset 160000
 
 `--offset` is what to add to the counter to get the absolute (old) scale at
 start. Ends by moving to the best position seen.
@@ -17,7 +17,7 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 from focuscompare import move_to
 from focus_blurscale import blur_scale
@@ -28,7 +28,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--direction", choices=["down", "up"], default="down")
     ap.add_argument("--step", type=int, default=20000)
     ap.add_argument("--limit", type=int, required=True, help="absolute position to stop at")

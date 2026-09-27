@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Focus on the Moon's limb: sweep the EAF and measure the limb's edge width.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u limbfocus.py --pos 55000,60000,65000 --frames 2 --exp-ms 10 --gain 100 --limits 30000,70000
+    ASIAIR_HOST=192.168.1.36 python3 -u focus/limbfocus.py --pos 55000,60000,65000 --frames 2 --exp-ms 10 --gain 100 --limits 30000,70000
 
 Metric: on the green superpixels of a preview frame (bin 2, 16-bit RGGB), each
 row (or column) that starts in sky is scanned from the sky end to the first
@@ -18,7 +18,7 @@ Fine focus: --page focus --bin 1 (1:1 crop, 16-bit RGGB) once the limb is near t
 import argparse, json, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import daypipes
 from daypipes import host, Pipes, log, save_png, focuser_pos, move_to
 
@@ -36,7 +36,7 @@ ap.add_argument("--limits", default="30000,70000", help="EAF LO,HI allowed")
 ap.add_argument("--goto-best", action="store_true", help="finish at the fitted vertex (else at the best sample)")
 ap.add_argument("--park", type=int, default=None, help="finish at this EAF position instead")
 ap.add_argument("--tag", default="limbfocus")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "limbfocus"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "limbfocus"))
 a = ap.parse_args()
 daypipes.LO, daypipes.HI = [int(v) for v in a.limits.split(",")]
 os.makedirs(a.outdir, exist_ok=True)

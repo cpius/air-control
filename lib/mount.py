@@ -9,14 +9,14 @@ RSA handshake is a 4700 thing). That's why every mount method returned
 Method names + param shapes lifted from the ASIAIR app's MountGateway
 (see RPC_METHODS.md). Coordinates: RA in hours, Dec/Alt/Az in degrees.
 
-    python3 mount.py info                 # model / firmware / selected driver
-    python3 mount.py coord                # live RA/Dec/Alt/Az + tracking
-    python3 mount.py track on|off         # sidereal tracking
-    python3 mount.py goto <ra_h> <dec_d>  # slew, waits for it to land
+    python3 lib/mount.py info                 # model / firmware / selected driver
+    python3 lib/mount.py coord                # live RA/Dec/Alt/Az + tracking
+    python3 lib/mount.py track on|off         # sidereal tracking
+    python3 lib/mount.py goto <ra_h> <dec_d>  # slew, waits for it to land
                                           # (no horizon check — caller decides)
-    python3 mount.py sync <ra_h> <dec_d>  # sync pointing model
-    python3 mount.py park                  # send home, wait for it to land
-    python3 mount.py abort                 # stop a slew in progress
+    python3 lib/mount.py sync <ra_h> <dec_d>  # sync pointing model
+    python3 lib/mount.py park                  # send home, wait for it to land
+    python3 lib/mount.py abort                 # stop a slew in progress
 """
 
 import argparse

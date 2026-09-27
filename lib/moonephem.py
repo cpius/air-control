@@ -4,8 +4,8 @@ apparent diameter and RA/Dec rates, for checking the register and predicting
 drift when no ephemeris library is installed. Topocentric correction included
 (parallax is up to 1 deg for the Moon -- it matters at 9'x5' fields).
 
-    python3 moonephem.py --lat 55.689444 --lon 12.555278            # now
-    python3 moonephem.py --utc 2026-09-24T19:30:00
+    python3 lib/moonephem.py --lat 55.689444 --lon 12.555278            # now
+    python3 lib/moonephem.py --utc 2026-09-24T19:30:00
 """
 import argparse, datetime as dt, math
 

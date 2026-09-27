@@ -2,7 +2,7 @@
 """Grab one fresh full-resolution preview frame off the Air and save it as a
 16-bit FITS, so tools/framecheck.py can measure it.
 
-    python3 grab.py --host <air-ip> --exp 3 --out frame.fit
+    python3 capture/grab.py --host <air-ip> --exp 3 --out frame.fit
 """
 import argparse
 import os
@@ -10,7 +10,7 @@ import struct
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 
 
@@ -45,7 +45,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--exp", type=float, default=3.0)
     ap.add_argument("--gain", type=int, default=250)
     ap.add_argument("--bin", type=int, default=1)

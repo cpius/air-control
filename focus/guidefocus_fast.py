@@ -13,13 +13,13 @@ failed frame costs nothing instead of 41s.
 """
 import os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from main_image import MainImage
 import guidefocus as gf
 
 HOST = os.environ.get("ASIAIR_HOST", "192.168.1.35")
-KEY  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 
 class FocusPage:
     def __init__(self, cam_name="ZWO ASI220MM Air", binning=1):

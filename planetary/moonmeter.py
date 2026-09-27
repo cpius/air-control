@@ -14,7 +14,7 @@ Used by satmoonvideo.py (live) and runnable on saved frames (--replay) to test i
   * plan_roi(): the readout window (bin-1 sensor px) that holds Saturn and the wanted moons, and
     where Saturn must sit in it.
 
-    python3 -u moonmeter.py --replay '../telemetry/2026-09-27/satmoons/010504_*_bin2.npy' --east=0.9875,0.1578
+    python3 -u planetary/moonmeter.py --replay '../telemetry/2026-09-27/satmoons/010504_*_bin2.npy' --east=0.9875,0.1578
 """
 import argparse, datetime as dt, glob, math, os, re, sys, time, urllib.parse, urllib.request
 import numpy as np

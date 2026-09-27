@@ -2,7 +2,7 @@
 """Plate scale from the curvature of the Moon's BRIGHT limb (independent check
 on driftscale.py).
 
-    ASIAIR_HOST=192.168.1.36 python3 -u limbscale.py --frames 8 --exp-ms 10 --gain 220 --east=0.821,0.572
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/limbscale.py --frames 8 --exp-ms 10 --gain 220 --east=0.821,0.572
 
 Full-sensor bin-1 preview frames. Per frame: edge points by scanning rows and
 columns from the sky side (never a mare boundary), a first circle, then radial
@@ -23,7 +23,7 @@ deg: fit two separate stretches of the limb and compare.
 import argparse, datetime as dt, json, math, os, sys, time
 import numpy as np
 from scipy import ndimage, optimize
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import moonephem as me
 
 ap = argparse.ArgumentParser()
@@ -35,7 +35,7 @@ ap.add_argument("--temp-c", type=float, default=12.0); ap.add_argument("--pressu
 ap.add_argument("--pixel-um", type=float, default=2.9)
 ap.add_argument("--analyse", default=None, help="re-analyse a saved .npz")
 ap.add_argument("--tag", default="limb")
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "limbscale"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "limbscale"))
 a = ap.parse_args() if __name__ == "__main__" else ap.parse_args([])
 os.makedirs(a.outdir, exist_ok=True)
 D2R = math.pi / 180

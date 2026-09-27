@@ -3,7 +3,7 @@
 circle to the limb in one preview frame and report the disc centre in pixels
 and, through the camera Jacobian, the register move that would centre it.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u limbfit.py --diam-arcmin 31.8 --jacobian=-23,299.8,-237.5,27.5
+    ASIAIR_HOST=192.168.1.36 python3 -u moon/limbfit.py --diam-arcmin 31.8 --jacobian=-23,299.8,-237.5,27.5
 
 The 9'x5' barlow field sees only a short arc, so the radius cannot be fitted:
 it is fixed from the ephemeris diameter and only the centre (2 parameters) is
@@ -14,7 +14,7 @@ shift per register move; pier west 2026-09-16 = the negated pier-east one).
 import argparse, math, os, sys, time
 import numpy as np
 from scipy import ndimage, optimize
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 
 ap = argparse.ArgumentParser()
@@ -93,5 +93,5 @@ m = np.linalg.solve(J, np.array([dx, dy]))         # arcmin of register RA (on s
 log("OTA field is %.1f' from the disc centre ; register move to centre the disc: dRA %+.1f' (on sky) dDec %+.1f'  (Jacobian %s)" % (dist, m[0], m[1], a.jacobian))
 print("LIMBFIT cx=%.1f cy=%.1f dist_arcmin=%.2f dra_arcmin=%.2f ddec_arcmin=%.2f" % (cx, cy, dist, m[0], m[1]))
 if not a.npy:
-    fn = save_png(img, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "%s_limbfit.png" % time.strftime("%H%M%S")), shrink=2)
+    fn = save_png(img, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "%s_limbfit.png" % time.strftime("%H%M%S")), shrink=2)
     np.save(fn.replace(".png", ".npy"), img.astype(np.uint16)); log("saved %s" % fn)

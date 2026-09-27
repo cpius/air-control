@@ -16,7 +16,7 @@ costs one point rather than the whole run.
 """
 import json, math, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import numpy as np
 import cv2
 from air_rpc import Air
@@ -25,7 +25,7 @@ from airlog import get_logger
 
 log = get_logger("survey")
 H = "192.168.1.35"
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 LAT = 55.689444
 LON = 12.555278
 ALT_FLOOR = 2.5

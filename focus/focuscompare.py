@@ -22,7 +22,7 @@ IT PUTS THE FOCUSER BACK ON THE WINNER before exiting. Leaving it parked
 wherever the sweep happened to end is its own bug: well off focus, the plate
 solver stops solving entirely, which looks nothing like a focus problem.
 
-    python3 focuscompare.py --pos 10800,11050,11300
+    python3 focus/focuscompare.py --pos 10800,11050,11300
 """
 import argparse
 import math
@@ -30,7 +30,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session, write_png
 
 HALF = 28          # crop half-size, in binned pixels

@@ -6,9 +6,9 @@ Each scenario writes the files a clip leaves in Video/ -- an AVI with the Air's
 RIFF/strf header and '00db' frame chunks, and a 400x400 _thn.jpg -- in some state
 a night can produce, and checks clipcheck's exit status and what it printed.
 
-    python3 -u test_clipcheck_verdicts.py                    # all scenarios
-    python3 -u test_clipcheck_verdicts.py --only recording-no-frames good
-    python3 -u test_clipcheck_verdicts.py --clipcheck /some/other/clipcheck.py
+    python3 -u tests/test_clipcheck_verdicts.py                    # all scenarios
+    python3 -u tests/test_clipcheck_verdicts.py --only recording-no-frames good
+    python3 -u tests/test_clipcheck_verdicts.py --clipcheck /some/other/clipcheck.py
 
 The regression: 2026-09-26 23:49, a manual check of a clip still being recorded
 (0.20 GB) read no frame anywhere in it and still said VERDICT PLANET, from the
@@ -126,7 +126,7 @@ def run(clipcheck, folder, extra):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", nargs="*", help="scenario names to run")
-    ap.add_argument("--clipcheck", default=os.path.join(HERE, "clipcheck.py"), help="the clipcheck.py under test")
+    ap.add_argument("--clipcheck", default=os.path.join(HERE, "..", "planetary", "clipcheck.py"), help="the clipcheck.py under test")
     ap.add_argument("--workdir", help="synthetic clips go here (default: a fresh temp folder, removed afterwards)")
     ap.add_argument("--keep", action="store_true", help="keep the synthetic clips")
     args = ap.parse_args()

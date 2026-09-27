@@ -10,7 +10,7 @@ bottoms out at the planet's own size and stops discriminating.
 Frames come from the focus page at bin 2 (14.4' x 8.1' at 2032 mm) so a big
 donut still fits, then bin 1 for the fine stage.
 
-    python3 focus_planet.py --host <air-ip> --step 5000
+    python3 focus/focus_planet.py --host <air-ip> --step 5000
 """
 import argparse
 import math
@@ -20,7 +20,7 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
 from focuscompare import move_to
 
@@ -85,7 +85,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST"),
                     required="ASIAIR_HOST" not in os.environ,
                     help="Air IP address (or set the ASIAIR_HOST env var)")
-    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem"))
+    ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem"))
     ap.add_argument("--step", type=int, default=5000, help="initial +/- step")
     ap.add_argument("--exp", type=float, default=0.3)
     ap.add_argument("--gain", type=int, default=100)

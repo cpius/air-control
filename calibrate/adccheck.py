@@ -6,12 +6,12 @@ centroids the star in R and B inside a box around its peak, and prints the R-B o
 arcsec (--arcsec-per-px). Zero means the ADC is set. The offset's direction tells which control to move:
 the component along the vertical (zenith) axis is the lever opening, the perpendicular one is the roll.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u adccheck.py --page focus --exp 0.05 --gain 100 --frames 5 --arcsec-per-px 0.107
+    ASIAIR_HOST=192.168.1.35 python3 -u calibrate/adccheck.py --page focus --exp 0.05 --gain 100 --frames 5 --arcsec-per-px 0.107
 """
 import argparse, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes
 
 ap = argparse.ArgumentParser()

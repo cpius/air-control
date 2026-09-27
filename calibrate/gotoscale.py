@@ -5,7 +5,7 @@ WARNING (2026-09-27): the mount's RA is quantized to 1 s of time (14.7" on the s
 at Dec 10). A "1'" RA goto is 4.07 s and lands as 4 or 5 s, so this read 0.171"/px
 against 0.1869 from driftscale.py. Kept only as a record; use driftscale.py.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u gotoscale.py --step-arcmin 1.5 --repeats 3 --exp-ms 10 --gain 220
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/gotoscale.py --step-arcmin 1.5 --repeats 3 --exp-ms 10 --gain 220
 
 Focus-page bin-1 crops (averaged in threes), goto RA +step / back / -step / back on
 the sky, phase-correlate the lunar texture against the centre position. An RA
@@ -15,7 +15,7 @@ Brightness per frame is printed so cloud can be seen.
 """
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log
 from mount import Mount
 from moonreg import bandpass, measure_shift

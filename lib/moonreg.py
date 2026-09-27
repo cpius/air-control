@@ -7,7 +7,7 @@ plainly moving -- measured 2026-09-24. This helper band-passes first: 3x3
 median (hot pixels), Gaussian smooth, subtract a wide Gaussian (illumination),
 window, then plain cross-correlation with a quadratic fit to the peak.
 
-    python3 moonreg.py --selftest telemetry/2026-09-24/moonlook/213000_moon_preview_bin2_20.07ms_g100.npy
+    python3 lib/moonreg.py --selftest telemetry/2026-09-24/moonlook/213000_moon_preview_bin2_20.07ms_g100.npy
 """
 import argparse, math, sys
 import numpy as np

@@ -14,19 +14,19 @@ strings turn up.
 Both 4400 and 4700 drop sockets that sit idle, so each carries a keepalive; a
 sniffer without one just watches itself get disconnected every 10-15 s.
 
-    python3 sniff.py                       # all channels, 5 minutes
-    python3 sniff.py --seconds 120
-    python3 sniff.py --all                 # do not filter the routine chatter
-    python3 sniff.py --grep ScopeGoto      # only lines matching
+    python3 rig/sniff.py                       # all channels, 5 minutes
+    python3 rig/sniff.py --seconds 120
+    python3 rig/sniff.py --all                 # do not filter the routine chatter
+    python3 rig/sniff.py --grep ScopeGoto      # only lines matching
 """
 import argparse, json, os, socket, sys, threading, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger
 
 log = get_logger("sniff")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 
 # Routine chatter that would bury anything interesting.
 NOISE = {"PiStatus", "Temperature", "Version", "GuideStep", "AutoGoto_Step_Info"}

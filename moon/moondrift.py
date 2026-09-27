@@ -4,9 +4,10 @@ phase correlation of each frame against the first (green plane, high-passed),
 linear fit in px/s, converted to arcsec/s and, through a Jacobian, to RA/Dec
 arcmin/min. Works on the .npy files moonlook.py --every writes.
 
-    python3 moondrift.py --json telemetry/2026-09-24/moonlook/HHMMSS_drift.json --arcsec-per-px 0.288 --jacobian=-23,299.8,-237.5,27.5
+    python3 moon/moondrift.py --json telemetry/2026-09-24/moonlook/HHMMSS_drift.json --arcsec-per-px 0.288 --jacobian=-23,299.8,-237.5,27.5
 """
 import argparse, glob, json, math, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import numpy as np
 from scipy import ndimage
 

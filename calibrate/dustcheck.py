@@ -8,19 +8,19 @@ out, the dust stays. Then measure the ring depth at the known mote positions and
 ones with a matched annulus filter. The pause direction also gives sky-west on the sensor, i.e.
 the camera angle (the camera may have been re-seated). Tracking is always re-enabled, on Lunar.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u dustcheck.py --frames 5 --pause-s 2.5 --ref telemetry/2026-09-26/moonlook/201154_02_adclive_preview_bin1_100ms_g100.npy
-    python3 dustcheck.py --npy telemetry/2026-09-26/dustcheck/*_dust_*.npy          # re-analyse
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/dustcheck.py --frames 5 --pause-s 2.5 --ref telemetry/2026-09-26/moonlook/201154_02_adclive_preview_bin1_100ms_g100.npy
+    python3 calibrate/dustcheck.py --npy telemetry/2026-09-26/dustcheck/*_dust_*.npy          # re-analyse
 """
 import argparse, glob, json, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from moonreg import bandpass, measure_shift
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # 2026-09-26 20:11, before cleaning: ten motes, green-plane coords (x2 = sensor px), 116 px outer diameter
 KNOWN = [(1416, 168), (1723, 294), (1518, 309), (1180, 711), (983, 661), (848, 418), (837, 188), (743, 537), (958, 444), (1579, 916)]
-BEFORE = [os.path.join(HERE, "..", "telemetry", "2026-09-26", f) for f in
+BEFORE = [os.path.join(HERE, "..", "..", "telemetry", "2026-09-26", f) for f in
           ("moonlook/195405_00_adclive_preview_bin1_100ms_g100.npy", "ratestep/195913_00_lunar.npy", "moonlook/201154_02_adclive_preview_bin1_100ms_g100.npy")]
 
 ap = argparse.ArgumentParser()
@@ -45,7 +45,7 @@ def res(r): return r.get("result", r) if isinstance(r, dict) else r
 
 def take():
     from daypipes import Pipes, host
-    h = host(); outdir = os.path.join(HERE, "..", "telemetry", time.strftime("%Y-%m-%d"), "dustcheck"); os.makedirs(outdir, exist_ok=True)
+    h = host(); outdir = os.path.join(HERE, "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "dustcheck"); os.makedirs(outdir, exist_ok=True)
     st = mount(h, lambda m: (res(m.call("scope_get_track_state", [])), res(m.call("scope_get_track_mode", []))))
     log("tracking %s, mode %s" % (st[0], st[1]["list"][st[1]["index"]]))
     p = Pipes(h); files = []; pauses = []

@@ -26,7 +26,7 @@ class Joystick:
         if require_mount and not self.mount_attached():
             raise RuntimeError(
                 "the Air has no mount attached, so scope_move would do nothing.\n"
-                "  fix:  python3 mount.py connect --lat <lat> --lon <lon>\n"
+                "  fix:  python3 lib/mount.py connect --lat <lat> --lon <lon>\n"
                 "(an Air restart drops the mount, and attaching zeroes the site)")
 
     def mount_attached(self):

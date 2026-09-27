@@ -29,8 +29,8 @@ move changed nothing". Every row is checksummed and repeats are marked `dup`
 and excluded from the running best, so a stalled stream looks like a stalled
 stream instead of a flat V-curve.
 
-    python3 focus_monitor.py --host <air-ip> --key embedded_key.pem
-    python3 focus_monitor.py --host <air-ip>          # no key: no position column
+    python3 focus/focus_monitor.py --host <air-ip> --key embedded_key.pem
+    python3 focus/focus_monitor.py --host <air-ip>          # no key: no position column
 """
 
 import argparse
@@ -39,7 +39,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import add_log_args, configure_logging, get_logger
 from main_image import MainImage

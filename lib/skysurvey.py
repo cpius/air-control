@@ -27,7 +27,7 @@ from airlog import get_logger
 
 log = get_logger("skysurvey")
 HOST = os.environ.get("ASIAIR_HOST", "192.168.1.35")
-KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 LAT, LON = 55.689444, 12.555278
 OUT = os.path.expanduser(os.environ.get("SKYSURVEY_OUT", "~/ASICAP/skysurvey-east.jsonl"))
 HTML = os.path.expanduser(os.environ.get("SKYSURVEY_HTML", "~/ASICAP/sky-survey.html"))

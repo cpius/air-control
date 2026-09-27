@@ -12,7 +12,7 @@ echo "" >> $LOG
 echo "########## APPENDED: top edge of the southern wall, az 190 alt 65/70/75" >> $LOG
 python3 - >> $LOG 2>&1 <<'PY'
 import sys, time
-sys.path.insert(0,'/Users/madsdorup/ASICAP/air-control')
+sys.path[:0] = ['/Users/madsdorup/ASICAP/air-control/lib', '/Users/madsdorup/ASICAP/air-control/horizon']
 from skysurvey import Rig, shot, fmt
 import survey_report
 rig = Rig()

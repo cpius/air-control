@@ -78,10 +78,10 @@ Progress is logged once a second through anything slow (see airlog.py) --
 focuser moves, frame downloads, the pixel scans -- so a stalled sweep is
 visible immediately rather than after the timeout.
 
-    python3 focus.py --host <air-ip> --key embedded_key.pem
-    python3 focus.py --host <air-ip> --key embedded_key.pem --images shots/
-    python3 focus.py --host <air-ip> --key embedded_key.pem --span 1500 --star 520,456
-    python3 focus.py --host <air-ip> --key embedded_key.pem -v   # every RPC call
+    python3 focus/focus.py --host <air-ip> --key embedded_key.pem
+    python3 focus/focus.py --host <air-ip> --key embedded_key.pem --images shots/
+    python3 focus/focus.py --host <air-ip> --key embedded_key.pem --span 1500 --star 520,456
+    python3 focus/focus.py --host <air-ip> --key embedded_key.pem -v   # every RPC call
 """
 
 import argparse
@@ -93,7 +93,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger

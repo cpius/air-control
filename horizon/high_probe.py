@@ -14,7 +14,7 @@ the side wall stops below 70 deg, sky opens up over the top of it, and that is
 worth knowing.
 """
 import os, sys, time
-sys.path.insert(0, '/Users/madsdorup/ASICAP/air-control')
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from skysurvey import Rig, shot, fmt
 import survey_report
 

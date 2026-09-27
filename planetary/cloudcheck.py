@@ -22,12 +22,12 @@ Verdicts, one line each, grep-able on "VERDICT":
   UNCERTAIN  no planet and the sky is dark -> pointing recovery first
              (optional solves, then the grid search), and only then wait
 
-    ASIAIR_HOST=192.168.1.35 python3 -u cloudcheck.py --ra 0.8545 --dec 2.575 --name Saturn \
+    ASIAIR_HOST=192.168.1.35 python3 -u planetary/cloudcheck.py --ra 0.8545 --dec 2.575 --name Saturn \
         --pred-dra 27 --pred-ddec 181 --search-ra 42 --search-dec 60 --no-solve --every 300
 """
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from findstar import blobs
 from mount import Mount

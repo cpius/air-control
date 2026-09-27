@@ -5,7 +5,7 @@ D="$HOME/ASICAP/2026-08-27 NGC6946 Ha"
 echo "waiting for the sensor to reach -9.5C ..."
 python3 - <<'PY'
 import sys, time
-sys.path.insert(0,'/Users/madsdorup/ASICAP/air-control')
+sys.path.insert(0,'/Users/madsdorup/ASICAP/air-control/lib')
 from air_rpc import Air
 KEY='/Users/madsdorup/ASICAP/air-control/embedded_key.pem'
 deadline=time.time()+1800
@@ -26,4 +26,4 @@ while time.time()<deadline:
         print("   poll failed: %s" % str(e)[:60], flush=True); time.sleep(5)
 PY
 echo "starting darks"
-python3 -u capture_cal.py dark --exp 120 --gain 252 --count 20 --out "$D/Dark"
+python3 -u capture/capture_cal.py dark --exp 120 --gain 252 --count 20 --out "$D/Dark"

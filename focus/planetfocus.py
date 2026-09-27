@@ -20,14 +20,14 @@ round, so a seeing trend cannot masquerade as a focus slope. The EAF is put
 on the winner (parabola through the best three) before exit. EAF limits come
 from daypipes (EAF_MIN / EAF_MAX in the environment).
 
-    EAF_MIN=30000 EAF_MAX=95000 ASIAIR_HOST=... python3 -u planetfocus.py \
+    EAF_MIN=30000 EAF_MAX=95000 ASIAIR_HOST=... python3 -u focus/planetfocus.py \
         --lo 41540 --hi 75540 --step 2000 --frames 6 --metric size          # coarse, barlow
-    python3 -u planetfocus.py --pos 55000,55150,55300,55450,55600 --rounds 2 --metric sharp
+    python3 -u focus/planetfocus.py --pos 55000,55150,55300,55450,55600 --rounds 2 --metric sharp
 """
 import argparse, math, os, sys, time
 import numpy as np
 from scipy import ndimage, optimize
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, move_to, focuser_pos
 
 ap = argparse.ArgumentParser()

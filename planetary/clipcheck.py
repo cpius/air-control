@@ -15,8 +15,8 @@ before --until), and reads it in place -- nothing is copied, so the root-only
 'arch' flag on the Air's files never matters. Exit 0 planet, 2 empty or no new
 clip, 3 partial, 1 could not check.
 
-    python3 -u clipcheck.py --air --host 192.168.1.35 --since 2026-09-17-003217
-    python3 -u clipcheck.py --air --since 2026-09-26-233400 --until 2026-09-26-234500   # not the clip being recorded
+    python3 -u planetary/clipcheck.py --air --host 192.168.1.35 --since 2026-09-17-003217
+    python3 -u planetary/clipcheck.py --air --since 2026-09-26-233400 --until 2026-09-26-234500   # not the clip being recorded
 
 The thumbnail is the clip's FIRST frame, written when recording starts, so it says
 nothing about what the file holds. PLANET needs the planet in at least --min-blocks
@@ -27,8 +27,8 @@ readable anywhere in it, passed as PLANET on its thumbnail alone.)
 Pulled files, every frame (validation). With --expect, PASS/FAIL per clip and
 exit 0 only if every clip matches:
 
-    python3 -u clipcheck.py --files "../Saturn/2026-09-16/short/*.avi" --expect planet
-    python3 -u clipcheck.py --files "../Saturn/2026-09-16/2026-09-17-00[345]*.avi" --expect empty
+    python3 -u planetary/clipcheck.py --files "../Saturn/2026-09-16/short/*.avi" --expect planet
+    python3 -u planetary/clipcheck.py --files "../Saturn/2026-09-16/2026-09-17-00[345]*.avi" --expect empty
 
 AVIs are read chunk by chunk ('00db' chunks of width*height bytes, resyncing over
 anything else), so a file whose header was zeroed by a power loss still reads,
@@ -39,7 +39,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from planetdetect import detect, detector_args, detector_kw
 
 T0 = time.time()

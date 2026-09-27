@@ -21,12 +21,12 @@ Reports the MEDIAN HFD over the locked stars. LOWER IS BETTER.
 """
 import math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from starhunt import Camera
 import guidefocus as gf
 
 HOST = os.environ.get("ASIAIR_HOST", "192.168.1.35")
-KEY  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "embedded_key.pem")
+KEY  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "embedded_key.pem")
 EXP  = float(os.environ.get("GF_EXP", 1.0))
 GAIN = int(os.environ.get("GF_GAIN", 200))
 SCALE = 0.653                                    # arcsec/px, guide sensor

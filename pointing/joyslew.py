@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Closed-loop joystick slew to register RA/Dec -- for when scope_goto is dead (300).
 
-    ASIAIR_HOST=192.168.1.36 python3 -u joyslew.py --ra 21.06 --dec -19.33 --min-alt 7
+    ASIAIR_HOST=192.168.1.36 python3 -u pointing/joyslew.py --ra 21.06 --dec -19.33 --min-alt 7
 
 Drives one axis at a time with timed scope_move chunks (<= --chunk s, stop in a
 finally), re-reading the register after every chunk. Nothing is assumed:
@@ -16,7 +16,7 @@ finally), re-reading the register after every chunk. Nothing is assumed:
 Dec first (big sweeps along the meridian), then RA. Coarse at MAX/2, fine at 20x.
 """
 import argparse, math, os, sys, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from joystick import Joystick
 
 ap = argparse.ArgumentParser()

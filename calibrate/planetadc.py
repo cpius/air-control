@@ -6,12 +6,12 @@ Band-passed R and B planes, masked to the planet, phase-correlated; G1/G2 as the
 read ~0). Vertical from the planet's parallactic angle and the camera angle (--east, camangle).
 Blue ABOVE red along the vertical = under-corrected (spread the levers); BELOW = over-corrected.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u planetadc.py --east=0.997,0.079 --ra 0.776 --dec 2.06
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/planetadc.py --east=0.997,0.079 --ra 0.776 --dec 2.06
 """
 import argparse, datetime as dt, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, log
 from moonreg import bandpass, measure_shift
 from moonephem import moon

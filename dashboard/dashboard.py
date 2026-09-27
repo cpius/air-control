@@ -19,9 +19,9 @@ Five panes, in the order they matter at 2 a.m.:
 resolved against it, so a path outside the root is refused rather than read;
 without that the page would be an arbitrary local-file reader on the LAN.
 
-    python3 dashboard.py                       # http://localhost:8765
-    python3 dashboard.py --port 9000 --bind 0.0.0.0    # reachable from the phone
-    python3 dashboard.py --once > state.json   # one state dump, no server
+    python3 dashboard/dashboard.py                       # http://localhost:8765
+    python3 dashboard/dashboard.py --port 9000 --bind 0.0.0.0    # reachable from the phone
+    python3 dashboard/dashboard.py --once > state.json   # one state dump, no server
 """
 
 import argparse
@@ -38,7 +38,7 @@ import threading
 import time
 import urllib.parse
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import add_log_args, configure_logging, get_logger
 

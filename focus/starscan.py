@@ -3,12 +3,12 @@
 count compact blobs above the noise and report the sharpest position. Works on any field with a few
 stars; at f/25 in the Milky Way a 3 s g300 frame shows stars to ~mag 11 when the focus is close.
 
-    ASIAIR_HOST=192.168.1.35 python3 -u starscan.py --pos 70000,74000,78000,82000,86000,90000,94000,98000 --exp 3 --gain 300
+    ASIAIR_HOST=192.168.1.35 python3 -u focus/starscan.py --pos 70000,74000,78000,82000,86000,90000,94000,98000 --exp 3 --gain 300
 """
 import argparse, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, focuser_pos, move_to
 from session import png
 
@@ -16,7 +16,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--host", default=os.environ.get("ASIAIR_HOST", "192.168.1.35"))
 ap.add_argument("--pos", required=True); ap.add_argument("--exp", type=float, default=3.0); ap.add_argument("--gain", type=int, default=300)
 ap.add_argument("--nsig", type=float, default=5.0); ap.add_argument("--min-area", type=int, default=12)
-ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "telemetry", time.strftime("%Y-%m-%d"), "starscan"))
+ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "starscan"))
 a = ap.parse_args(); os.makedirs(a.outdir, exist_ok=True)
 def log(s): print(f"{time.strftime('%H:%M:%S')} {s}", flush=True)
 

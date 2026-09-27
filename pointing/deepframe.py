@@ -5,7 +5,7 @@ BEFORE the solve (the Air auto-syncs on success, so read first or the
 pointing error is zero by construction)."""
 import argparse, math, os, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, focuser_pos
 from findstar import blobs
 from mount import Mount

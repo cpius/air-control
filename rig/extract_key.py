@@ -11,10 +11,10 @@ For interoperability with a device you own, using an app you are licensed to use
 (the DMCA §1201(f) exemption the README describes). It reads the package you
 point it at; it does not download anything.
 
-    python3 extract_key.py ASIAIR_3.0.0_APKPure.xapk          # -> embedded_key.pem
-    python3 extract_key.py app.apk -o mykey.pem
-    python3 extract_key.py /path/to/libopenssllib.so          # a bare .so works too
-    python3 extract_key.py app.xapk --index 1                 # if more than one key
+    python3 rig/extract_key.py ASIAIR_3.0.0_APKPure.xapk          # -> embedded_key.pem
+    python3 rig/extract_key.py app.apk -o mykey.pem
+    python3 rig/extract_key.py /path/to/libopenssllib.so          # a bare .so works too
+    python3 rig/extract_key.py app.xapk --index 1                 # if more than one key
 
 Needs the `cryptography` package to validate/fingerprint keys (same optional dep
 air_rpc.py uses); without it, extraction still works but skips validation.
@@ -28,7 +28,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import add_log_args, configure_logging, get_logger
 

@@ -9,7 +9,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from airlog import get_logger
 from alpaca import Alpaca
@@ -18,7 +18,7 @@ log = get_logger("smoke")
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("ASIAIR_HOST")
 if not HOST:
-    sys.exit("usage: python3 smoke_test.py <host> [port]   (or set ASIAIR_HOST)")
+    sys.exit("usage: python3 rig/smoke_test.py <host> [port]   (or set ASIAIR_HOST)")
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 32323
 CAM = 1  # 0 = ASI220MM guide sensor, 1 = ASI585MC main sensor
 

@@ -8,16 +8,18 @@ Flow (firmware 7.18+, per seestar_alp):
     pi_is_verified             -> confirms the channel is unlocked
 
 Usage:
-    python3 handshake.py --host <air-ip> --key embedded_key.pem
+    python3 rig/handshake.py --host <air-ip> --key embedded_key.pem
 """
 
 import argparse
 import base64
+import os
 import sys
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from air_rpc import Air
 
 

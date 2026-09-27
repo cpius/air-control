@@ -21,11 +21,11 @@ Exit: 0 target reached   7 max-seconds hit first (still a usable clip)   3 no Sa
       5 Saturn lost while recording   6 frames stalled   1 anything else
 Outputs <outdir>/<HHMMSS>_moonvideo.csv (per sampled frame) and .json (window, spot, times, SNRs).
 
-    ASIAIR_HOST=192.168.1.36 python3 -u satmoonvideo.py --east=0.9875,0.1578 --arcsec-per-px 0.09968
+    ASIAIR_HOST=192.168.1.36 python3 -u planetary/satmoonvideo.py --east=0.9875,0.1578 --arcsec-per-px 0.09968
 """
 import argparse, csv, json, math, os, signal, sys, time
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png
 from main_image import MainImage
 from mount import Mount

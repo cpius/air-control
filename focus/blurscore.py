@@ -7,7 +7,7 @@ normalised by the low-frequency (scene contrast) power. Also reports the
 frequency where the corrected spectrum falls to 10% of its low-band level --
 a bandwidth that scales with 1/FWHM.
 
-    python3 blurscore.py --dir frames/moonfocus_0924_preview --band 0.02,0.12 --low 0.005,0.02
+    python3 focus/blurscore.py --dir frames/moonfocus_0924_preview --band 0.02,0.12 --low 0.005,0.02
 Frequencies are cycles per plane pixel (plane px = 2 frame px).
 """
 import argparse, glob, os, re, sys

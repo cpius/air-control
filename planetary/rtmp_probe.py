@@ -2,8 +2,7 @@
 """rtmp page, attempt sequence: reset the leftover subframe, then bin 1, then a
 longer exposure. Stop at the first configuration that streams frames."""
 import os, sys, time, hashlib, json
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/Users/madsdorup/ASICAP/air-control")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, log
 p = Pipes(); c = p.c
 

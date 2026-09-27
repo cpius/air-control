@@ -5,12 +5,12 @@ so the slide gives east on the sensor -- what moonadc.py --east needs. Re-run it
 ADC or the camera has been turned (re-levelling the ADC turns the camera with it).
 Tracking is always re-enabled, on Lunar.
 
-    ASIAIR_HOST=192.168.1.36 python3 -u camangle.py --pause-s 1.5
+    ASIAIR_HOST=192.168.1.36 python3 -u calibrate/camangle.py --pause-s 1.5
 """
 import argparse, math, os, sys, time
 import numpy as np
 from scipy import ndimage
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from moonreg import bandpass, measure_shift
 
 ap = argparse.ArgumentParser()

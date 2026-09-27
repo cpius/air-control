@@ -9,7 +9,7 @@ read-only wordlist, keep everything that isn't a 103.
 Read-only verbs only (get_/is_/has_/scan_ and <device>_get_). Nothing here
 moves the mount, exposes, or writes settings.
 
-    python3 find_methods.py --host <air-ip> --key embedded_key.pem
+    python3 rig/find_methods.py --host <air-ip> --key embedded_key.pem
 """
 
 import argparse
@@ -18,7 +18,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
 from airlog import add_log_args, configure_logging, get_logger

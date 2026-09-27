@@ -19,7 +19,7 @@ was:
 """
 import argparse, json, os, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from skysurvey import (Rig, shot, fmt, OUT, radec_to_altaz)
 from airlog import get_logger
 import survey_report

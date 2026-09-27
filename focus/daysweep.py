@@ -3,8 +3,7 @@
 auto-exposure that follows sun/cloud, and the roof-edge width. Any pipeline."""
 import os, argparse, sys, time, json
 import numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/Users/madsdorup/ASICAP/air-control")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import Pipes, log, metrics_pair, edge_width, save_png, move_to, focuser_pos, LO, HI, star_metrics
 
 ap = argparse.ArgumentParser()
