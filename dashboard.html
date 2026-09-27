@@ -101,7 +101,21 @@ tr:hover td{background:#ffffff06}
 .strip .best img{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok)}
 
 /* --- preview --- */
-.preview img{width:100%;border-radius:6px;border:1px solid var(--line);display:block}
+/* The pane takes the rest of the focus row, and fills it with as many frames
+   as fit, newest on the left; the arrows page back through older ones. Below
+   two grid columns it is one column wide like everything else. */
+@media (min-width:800px){ #c-preview{grid-column:2/-1} }
+.pv-strip{position:relative;display:grid;gap:12px}
+.pv{margin:0;min-width:0}
+.pv img{width:100%;aspect-ratio:1472/830;object-fit:contain;background:#000;
+  border-radius:6px;border:1px solid var(--line);display:block}
+.pv figcaption{margin-top:6px}
+.pv-img{position:relative}
+.pv-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;
+  width:38px;height:38px;border-radius:50%;padding:0 0 3px;font-size:24px;line-height:1;
+  background:#000b;border-color:var(--dim)}
+.pv-nav:hover{border-color:var(--live);color:var(--live)}
+.pv-nav.l{left:8px} .pv-nav.r{right:8px}
 
 /* --- feedback --- */
 .devtabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
@@ -317,6 +331,68 @@ function vcurve(f, good) {
   </svg>`;
 }
 
+/* ---------------- preview ---------------- */
+// As many frames as fit, newest on the left; the arrows (or ←/→) page through
+// older ones. Once you have paged back, pvAnchor holds the path of the
+// leftmost frame on screen, so frames arriving every few seconds do not slide
+// the view out from under you. null means "follow the newest".
+const PV_MIN = 360, PV_GAP = 12;
+let pvAnchor = null, pvKey = '';
+
+const pvList = () => STATE?.previews || (STATE?.preview ? [STATE.preview] : []);
+const pvPerPage = () => Math.max(1,
+  Math.floor(($('#preview').clientWidth + PV_GAP) / (PV_MIN + PV_GAP)));
+
+function pvStart(list, n) {
+  let i = pvAnchor ? list.findIndex(p => p.path === pvAnchor) : 0;
+  if (i < 0) { i = 0; pvAnchor = null; }        // the anchor aged out of the list
+  return Math.max(0, Math.min(i, list.length - n));
+}
+
+function pvPage(dir) {
+  const list = pvList(), n = pvPerPage();
+  const i = Math.max(0, Math.min(pvStart(list, n) + dir * n, list.length - n));
+  pvAnchor = i ? list[i].path : null;
+  previewPane();
+}
+
+function previewPane() {
+  const list = pvList();
+  if (!list.length) {
+    pvKey = '';
+    $('#preview').innerHTML = '<p class="empty">no preview frame yet</p>';
+    $('#preview-sub').textContent = '';
+    return;
+  }
+  const n = pvPerPage(), i = pvStart(list, n), page = list.slice(i, i + n);
+  const older = list.length - i - page.length;
+  $('#preview-sub').textContent = (i ? `${i} newer · ` : '')
+    + (page.length > 1 ? `${i + 1}–${i + page.length}` : `${i + 1}`)
+    + ` of ${list.length} · newest ${hhmm(list[0].t)}`;
+  // Only rebuild when what is on screen changed: a rebuild every 5 s poll
+  // would blank and re-decode every frame in the strip.
+  const key = [n, i > 0, older > 0, ...page.map(p => p.path + '@' + p.t)].join('|');
+  if (key === pvKey) return;
+  pvKey = key;
+  $('#preview').innerHTML = `<div class="pv-strip"
+      style="grid-template-columns:repeat(${n},minmax(0,1fr))">
+    ${page.map((p, k) => `<figure class="pv">
+      <div class="pv-img">
+        <a href="${img(p.path)}" target="_blank" rel="noopener"><img
+          src="${img(p.path)}&t=${encodeURIComponent(p.t||'')}" alt="frame ${hhmm(p.t)}"></a>
+        ${k === 0 && i > 0 ? '<button class="pv-nav l" data-dir="-1" title="newer (←)">‹</button>' : ''}
+        ${k === page.length - 1 && older > 0
+          ? '<button class="pv-nav r" data-dir="1" title="older (→)">›</button>' : ''}
+      </div>
+      <figcaption class="kv">
+        <dt>${hhmm(p.t)}</dt><dd class="trunc">${esc(p.path.split('/').pop())}</dd>
+        ${p.meta ? Object.entries(p.meta).map(([k, v]) =>
+          `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') : ''}
+      </figcaption></figure>`).join('')}</div>`;
+  document.querySelectorAll('#preview .pv-nav').forEach(b =>
+    b.onclick = () => pvPage(+b.dataset.dir));
+}
+
 /* ---------------- commands ---------------- */
 function cmdPane(rows) {
   if (!rows.length) return '<p class="empty">no commands recorded yet</p>';
@@ -392,16 +468,7 @@ function render(s) {
   $('#focus').innerHTML = focusPane(s.focus);
   $('#focus-sub').textContent = s.focus ? `${s.focus.name} · ${hhmm(s.focus.mtime)}` : '';
 
-  $('#preview').innerHTML = s.preview
-    ? `<img src="${img(s.preview.path)}&t=${encodeURIComponent(s.preview.t||'')}"
-         alt="most recent frame">
-       <div class="kv" style="margin-top:8px">
-         <dt>file</dt><dd class="trunc">${esc(s.preview.path.split('/').pop())}</dd>
-         ${s.preview.meta ? Object.entries(s.preview.meta).map(([k,v])=>
-           `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') : ''}
-       </div>`
-    : '<p class="empty">no preview frame yet</p>';
-  $('#preview-sub').textContent = s.preview ? hhmm(s.preview.t) : '';
+  previewPane();
 
   $('#cmd').innerHTML = cmdPane(s.commands || []);
   $('#cmd-sub').textContent = `${(s.commands||[]).length} shown · `
@@ -440,6 +507,12 @@ $('#pause').onclick = e => {
   paused = !paused; e.target.classList.toggle('on', paused);
   e.target.textContent = paused ? 'paused' : 'pause';
 };
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || !STATE) return;
+  if (e.key === 'ArrowRight') pvPage(1);
+  else if (e.key === 'ArrowLeft') pvPage(-1);
+});
+window.addEventListener('resize', () => { if (STATE) previewPane(); });
 if (localStorage.night) $('#night').click();
 
 poll();

@@ -11,7 +11,7 @@ Five panes, in the order they matter at 2 a.m.:
 
     sky        conditions now, the 30-minute outlook, radar, Sun and Moon
     focus      the most recent sweep: V-curve, per-step measurements, closeups
-    preview    the most recent frame off the camera
+    preview    the recent frames off the camera, newest first, paged
     commands   every request sent to the Air, with round-trip time and errors
     feedback   every message the Air sent back, split by subsystem
 
@@ -27,6 +27,7 @@ without that the page would be an arbitrary local-file reader on the LAN.
 import argparse
 import datetime
 import glob
+import heapq
 import http.server
 import json
 import mimetypes
@@ -223,14 +224,30 @@ def _vertex(pts):
 # ---------------------------------------------------------------------------
 
 PREVIEW_EXT = (".jpg", ".jpeg", ".png")
+MAX_PREVIEWS = 300         # newest first; the pane pages back through these
 
 
-def find_preview(rows, roots):
+def find_previews(rows, roots, limit=MAX_PREVIEWS):
+    """Preview frames, newest first. The pane shows as many as fit and pages
+    back through the rest.
+
+    Frames a tool announced with rec.artifact("preview", ...) win outright;
+    only when the log has none does it fall back to the newest images anywhere
+    under the roots. A path announced twice is one frame -- the file on disk
+    only holds the later one.
+    """
+    out, seen = [], set()
     for r in reversed(rows):
         if r.get("kind") == "artifact" and r.get("artifact") == "preview":
-            if os.path.exists(r.get("path", "")):
-                return {"path": r["path"], "t": r.get("t"), "meta": r.get("meta")}
-    best, best_m = None, -1
+            p = r.get("path", "")
+            if p not in seen and os.path.exists(p):
+                seen.add(p)
+                out.append({"path": p, "t": r.get("t"), "meta": r.get("meta")})
+                if len(out) >= limit:
+                    break
+    if out:
+        return out
+    found = {}
     for root in roots:
         for ext in PREVIEW_EXT:
             for p in glob.glob(os.path.join(root, "**", "*" + ext), recursive=True):
@@ -238,13 +255,14 @@ def find_preview(rows, roots):
                 # sample data and must stay findable.
                 if os.path.join("dashboard", "data") + os.sep in p:
                     continue
-                m = os.path.getmtime(p)
-                if m > best_m:
-                    best, best_m = p, m
-    if not best:
-        return None
-    return {"path": best, "meta": None,
-            "t": datetime.datetime.fromtimestamp(best_m).isoformat(timespec="seconds")}
+                try:
+                    found[p] = os.path.getmtime(p)
+                except OSError:
+                    continue      # deleted between the glob and the stat
+    newest = heapq.nlargest(limit, found.items(), key=lambda kv: kv[1])
+    return [{"path": p, "meta": None,
+             "t": datetime.datetime.fromtimestamp(m).isoformat(timespec="seconds")}
+            for p, m in newest]
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +294,7 @@ def build_state(data_dir=DATA, roots=(ROOT,), with_weather=True):
     rows, path = read_events(data_dir)
     fb, noise, counts = build_feedback(rows)
     focus_dir = find_focus_run(rows, roots)
+    previews = find_previews(rows, roots)
     last = rows[-1].get("t") if rows else None
     return {
         "now": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -286,7 +305,8 @@ def build_state(data_dir=DATA, roots=(ROOT,), with_weather=True):
         "feedback": fb, "noise": noise, "event_counts": counts,
         "device_order": DEVICE_ORDER,
         "focus": read_focus_run(focus_dir),
-        "preview": find_preview(rows, roots),
+        "preview": previews[0] if previews else None,     # snapshot.py reads this
+        "previews": previews,
         "sessions": [r for r in rows if r.get("kind") == "session"][-5:],
     }
 
@@ -313,13 +333,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         log.trace("http %s", fmt % a)
 
-    def _send(self, code, body, ctype="application/json", extra=None):
+    def _send(self, code, body, ctype="application/json", extra=None,
+              cache="no-store"):
         if isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -344,15 +365,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 log.warn("state build failed: %s", e)
                 return self._send(500, json.dumps({"error": str(e)}))
         if u.path == "/img":
-            return self._image(urllib.parse.parse_qs(u.query).get("p", [""])[0])
+            q = urllib.parse.parse_qs(u.query)
+            return self._image(q.get("p", [""])[0], versioned="t" in q)
         return self._send(404, json.dumps({"error": "not found"}))
 
-    def _image(self, p):
+    def _image(self, p, versioned=False):
         """Serve a local image, but only from inside a configured root.
 
         The paths come out of a log file, so they are not trusted input. Both
         the root and the target are realpath'd before comparison so a symlink
         or a ../ cannot walk out.
+
+        `versioned` means the page put the frame's timestamp in the URL, so a
+        rewrite of the file is a new URL and the browser may keep this one --
+        paging the preview strip then does not re-download every frame.
         """
         if not p:
             return self._send(400, json.dumps({"error": "no path"}))
@@ -366,7 +392,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not ctype.startswith("image/"):
             return self._send(415, json.dumps({"error": "not an image"}))
         with open(real, "rb") as f:
-            return self._send(200, f.read(), ctype)
+            return self._send(200, f.read(), ctype,
+                              cache="private, max-age=86400" if versioned else "no-store")
 
 
 class Server(socketserver.ThreadingTCPServer):
