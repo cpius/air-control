@@ -20,6 +20,8 @@ ap.add_argument("--pre-north", type=float, default=0.0, help="arcsec to move the
 ap.add_argument("--passes", type=int, default=3); ap.add_argument("--tol", type=float, default=12.0, help="arcsec")
 ap.add_argument("--exp", type=float, default=0.02); ap.add_argument("--gain", type=int, default=300)
 ap.add_argument("--arcsec-per-px", type=float, default=0.110)
+ap.add_argument("--nudge", default="slow", choices=["slow", "fast"], help="slow = slowpulse.Nudger (1x, mount-timed dead-man, Dec backlash compensated; "
+                "2026-09-28 Moon test), fast = the old 20x pulses + tracking pause")
 a = ap.parse_args()
 E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
 def log(s): print("%s  %s" % (time.strftime("%H:%M:%S"), s), flush=True)
@@ -36,8 +38,17 @@ def pulse(cmd, secs):
         try: m.call("scope_set_slew_rate", [4]); m.call("scope_move", [cmd]); time.sleep(secs)
         finally: m.call("scope_move", ["none"]); m.call("scope_move", ["none"]); m.call("scope_set_slew_rate", [idx])
     mdo(f); time.sleep(1.0)
+nudger = None
 def move(e_as, n_as):
     """move the POINTING by e_as east, n_as north (arcsec). Pier west: 'south' raises Dec."""
+    global nudger
+    if a.nudge == "slow":
+        if nudger is None:
+            from slowpulse import Nudger
+            nudger = Nudger(host(), log=log)
+        done = nudger.nudge(e_as, n_as); time.sleep(0.8)
+        log("  nudged: " + (", ".join("%s %.0f\" at %dx" % (c, amt, 1 if r == 0 else 4) for c, amt, r, _ in done) or "nothing"))
+        return
     if abs(n_as) > 8: pulse("south" if n_as > 0 else "north", min(abs(n_as) / 312.0, 4.0))
     if e_as > 8:
         try: mdo(lambda m: m.call("scope_set_track_state", [False])); time.sleep(min(e_as / 15.0, 30.0))

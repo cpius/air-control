@@ -64,6 +64,8 @@ ap.add_argument("--min-gap", type=float, default=4.0, help="seconds between corr
 ap.add_argument("--no-hold", action="store_true", help="record without corrections")
 ap.add_argument("--hold-mode", default="goto", choices=["goto", "pulse"], help="pulse: no goto (register not trustworthy, 2026-09-26) -- Dec by 20x joystick pulses, RA east by pausing tracking, RA west by a pulse")
 ap.add_argument("--east", default="0.239,0.971", help="--hold-mode pulse: sky east on the sensor (camangle.py)")
+ap.add_argument("--nudge", default="slow", choices=["slow", "fast"], help="--hold-mode pulse: slow = slowpulse.Nudger (1x, mount-timed dead-man, Dec backlash "
+                "compensated; 2026-09-28 Moon test), fast = the old 20x pulses (Wi-Fi jitter = 30-60\" of error)")
 ap.add_argument("--hold-gain", type=float, default=0.6, help="--hold-mode pulse: fraction of the error each correction removes. 1.0 overshot twice in a row on 2026-09-26 00:23 (Wi-Fi delay lengthens 20x pulses) and lost the planet")
 ap.add_argument("--exp-max", type=float, default=100.0, help="ms; the exposure test will not go longer than this")
 ap.add_argument("--gain-max", type=int, default=450, help="raise the gain in steps of 50 up to this when the exposure cap is not enough")
@@ -75,8 +77,13 @@ ap.add_argument("--confirm-radius", type=float, default=150.0, help="px: the pla
 ap.add_argument("--max-missing", type=int, default=10, help="stop the recording after this many consecutive fresh frames without the planet (~4 s at 2.5 Hz)")
 ap.add_argument("--max-stall", type=float, default=30.0, help="stop the recording if no fresh frame arrives for this many seconds")
 ap.add_argument("--heartbeat", type=float, default=5.0, help="seconds between hold-loop status lines")
+ap.add_argument("--grab-min", type=float, default=0.5, help="s between hold-loop frame pulls at the FASTEST: after a correction, planet near the deadband edge or missing. "
+                "Every pull costs the recorder frames (2026-09-27, 640 ROI 12 ms: 0.8-1.9 pulls/s -> 49-53 fps, 3.3-4.3 pulls/s -> 38-44 fps)")
+ap.add_argument("--grab-max", type=float, default=10.0, help="s between pulls at the SLOWEST: planet well inside the deadband and drifting slowly (the wait is half the "
+                "predicted time to reach the deadband edge, from a 20 s drift fit, and at most doubles per step)")
 ap.add_argument("--outdir", default="/Users/madsdorup/ASICAP/telemetry/video")
 a = ap.parse_args()
+nudger = None                                      # slowpulse.Nudger, made on the first pulse-mode correction (keeps Dec backlash state)
 os.makedirs(a.outdir, exist_ok=True)
 J = np.array([float(v) for v in a.jacobian.split(",")]).reshape(2, 2)
 CHIP = (3840, 2160)
@@ -199,6 +206,14 @@ try:
         E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
         dd = np.array([q.x - cx, q.y - cy]); e_as, n_as = float(dd @ E) * a.arcsec_per_px, float(dd @ N) * a.arcsec_per_px
         e_as, n_as = e_as * a.hold_gain, n_as * a.hold_gain
+        if a.nudge == "slow":
+            global nudger
+            if nudger is None:
+                from slowpulse import Nudger
+                nudger = Nudger(host(), log=log)
+            done = nudger.nudge(e_as, n_as)
+            log("    nudged: " + (", ".join("%s %.0f\" at %dx" % (c, amt, 1 if r == 0 else 4) for c, amt, r, _ in done) or "nothing (below 3\")"))
+            return np.array([e_as / 60.0, n_as / 60.0]), float(np.hypot(*dd))
         def mdo(fn):
             mm = Air(host(), 4400)
             try: return fn(mm)
@@ -258,7 +273,13 @@ try:
         code = 3
         sys.exit(code)
     p.s.air.drain_events()
-    log("start_record_avi -> %s (planet confirmed on %d consecutive fresh frames)" % (p.c("start_record_avi"), len(dets)))
+    r = p.c("start_record_avi")
+    log("start_record_avi -> %s (planet confirmed on %d consecutive fresh frames)" % (r, len(dets)))
+    if r not in (0, "0", None):
+        # 2026-09-27 23:54: "fail to write file" with the Air's eMMC still attached over USB-C (ejected on the Mac,
+        # cable in) -- the hold then ran 180 s and reported RECORDED on a clip that was never written
+        log("ABORT: the Air's recorder refused (%s) -- nothing is being written (USB-C storage still attached? eMMC full?)" % (r,))
+        sys.exit(8)
     recording = True
     t0 = time.time()
     csv_path = "%s/%s_hold.csv" % (a.outdir, time.strftime("%H%M%S"))
@@ -268,7 +289,14 @@ try:
     watch = PlanetWatch(a.max_missing)
     offs = []; status = "recorded"; last_hb = t0
     stale0, foreign0 = frames.stale, frames.foreign
+    interval = a.grab_min; next_grab = 0.0; track = []             # adaptive pull rate (--grab-min/--grab-max)
     while time.time() - t0 < a.seconds:
+        wait = min(next_grab, t0 + a.seconds) - time.time()
+        if wait > 0:
+            time.sleep(wait)
+            if time.time() - t0 >= a.seconds:
+                break
+        next_grab = time.time() + a.grab_min                        # fast by default; the planet path below may slow it
         try:
             f = frames.get(5.0, heartbeat=1e9)
         except Exception as e:
@@ -302,12 +330,22 @@ try:
         if now - last_hb >= a.heartbeat:
             last_hb = now
             ev = avi_events[-1] if avi_events else {}
-            log("  %5.1fs: %d fresh frames, planet in %d ; now %s, %.0f px off | avi working=%s fps=%s write_fps=%s" % (
-                now - t0, watch.frames, watch.with_planet, d, off, ev.get("is_working"), ev.get("fps"), ev.get("write_file_fps")))
+            log("  %5.1fs: %d fresh frames, planet in %d ; now %s, %.0f px off | pulling every %.1f s | avi working=%s fps=%s write_fps=%s" % (
+                now - t0, watch.frames, watch.with_planet, d, off, interval, ev.get("is_working"), ev.get("fps"), ev.get("write_file_fps")))
         if not a.no_hold and off > a.deadband and now - last_corr > a.min_gap:
             corr, r0 = correct(d, J); last_corr = time.time()
             log("  %5.1fs: correction RA %+.2f' Dec %+.2f' (was %.0f px off)" % (time.time() - t0, corr[0], corr[1], r0))
             frames.skip(1, timeout=5)                   # exposed during the move: not judged
+            track = []                                  # the planet jumped: the drift fit starts again
+        else:
+            track.append((now, d.x, d.y)); track = [q for q in track if now - q[0] <= 20.0]
+        if off > 0.75 * a.deadband or time.time() - last_corr < 6.0 or len(track) < 3 or track[-1][0] - track[0][0] < 2.0:
+            interval = a.grab_min
+        else:
+            tt = np.array([q[0] for q in track]) - track[0][0]
+            v = math.hypot(np.polyfit(tt, [q[1] for q in track], 1)[0], np.polyfit(tt, [q[2] for q in track], 1)[0])   # px/s
+            interval = min(max(0.5 * (a.deadband - off) / max(v, 0.5), a.grab_min), a.grab_max, 2.0 * interval)
+        next_grab = time.time() + interval
     log("stop_record_avi -> %s" % p.c("stop_record_avi"))
     recording = False
     el = time.time() - t0
