@@ -42,7 +42,10 @@ VIDEO_ARGS=""                           # extra satvideo flags, appended (argpar
 PULSE=0                                 # 1: no gotos anywhere (register not trustworthy) -- planetcentre/planetsearch
 EAST="0.239,0.971"                      # --pulse: sky east on the sensor (camangle.py)
 MOONS_EVERY=0                           # >0: a satmoons.py set after every Nth verified clip
+MAX_FAILS=0                             # >0: stop after this many clips in a row without the planet (set behind a building, cloud)
 MOONS_ARGS=""
+MOON_VIDEO=0                            # 1: the moon set is a self-stopping satmoonvideo.py (sharp moons) instead of satmoons.py
+MOON_VIDEO_ARGS=""
 
 usage() {
   sed -n '2,24p' $SELF | sed 's/^# \{0,1\}//'
@@ -65,7 +68,11 @@ flags (defaults in brackets):
                        --hold-mode pulse, re-acquire = planetcentre.py, else planetsearch.py --centre
   --east X,Y           --pulse: sky east on the sensor, from camangle.py [$EAST]
   --moons-every N      after every Nth verified clip, a satmoons.py set (deep frames for the moons) [$MOONS_EVERY]
+  --max-fails N        stop after N clips in a row without the planet (satvideo exit 3/4/5) [$MAX_FAILS = never]
   --moons-args "ARGS"  satmoons.py flags, e.g. "--frames 15 --exp 1.0 --gain 300 --east=X,Y --target-east 50"
+  --moon-video "ARGS"  make the moon set a self-stopping moon VIDEO (satmoonvideo.py: 100 ms frames, wide window,
+                       stops when the required moons reach their SNR, ~20-150 s); ARGS are its flags,
+                       e.g. "--east=0.9875,0.1578 --arcsec-per-px 0.09968" ("" = its defaults + --east from --east)
 EOF
 }
 
@@ -87,7 +94,9 @@ while (( $# )); do
     --pulse) PULSE=1; shift;;
     --east) EAST=$2; shift 2;;
     --moons-every) MOONS_EVERY=$2; shift 2;;
+    --max-fails) MAX_FAILS=$2; shift 2;;
     --moons-args) MOONS_ARGS=$2; shift 2;;
+    --moon-video) MOON_VIDEO=1; MOON_VIDEO_ARGS=$2; shift 2;;
     -h|--help) usage; exit 0;;
     *) print -u2 "unknown argument: $1 (see --help)"; exit 2;;
   esac
@@ -274,11 +283,24 @@ for i in {1..$CLIPS}; do
     esac
   fi
   if (( MOONS_EVERY > 0 && i % MOONS_EVERY == 0 )) && [[ $verdict == planet ]]; then
-    guard "satmoons"
-    ml=$CLIPDIR/$(date '+%H%M%S')_clip${i}_satmoons.log
-    say "LOOP moon set after clip $i (log $ml)"
-    run_child $ml python3 -u $HERE/satmoons.py ${(z)MOONS_ARGS}
-    say "LOOP moon set exit $?: $(grep -E 'stacked|wrote' $ml | tail -2 | tr '\n' ' ' | cut -c1-200)"
+    if (( MOON_VIDEO )); then
+      guard "satmoonvideo"
+      ml=$CLIPDIR/$(date '+%H%M%S')_clip${i}_moonvideo.log
+      say "LOOP moon video after clip $i (log $ml)"
+      run_child $ml python3 -u $HERE/satmoonvideo.py --east=$EAST ${(z)MOON_VIDEO_ARGS}
+      say "LOOP moon video exit $?: $(grep -E 'RESULT|ABORT|STOPPING' $ml | tail -1 | cut -c1-220)"
+    else
+      guard "satmoons"
+      ml=$CLIPDIR/$(date '+%H%M%S')_clip${i}_satmoons.log
+      say "LOOP moon set after clip $i (log $ml)"
+      run_child $ml python3 -u $HERE/satmoons.py ${(z)MOONS_ARGS}
+      say "LOOP moon set exit $?: $(grep -E 'stacked|wrote' $ml | tail -2 | tr '\n' ' ' | cut -c1-200)"
+    fi
+  fi
+  if (( rc == 3 || rc == 4 || rc == 5 )); then FAILS=$(( ${FAILS:-0} + 1 )); else FAILS=0; fi
+  if (( MAX_FAILS > 0 && FAILS >= MAX_FAILS )); then
+    say "LOOP STOP: $FAILS clips in a row without the planet (last: ${MEANING[$rc]:-exit $rc}) -- set behind a building, or cloud"
+    break
   fi
   if [[ $verdict != planet ]]; then
     reacquire $i
