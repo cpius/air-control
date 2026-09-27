@@ -22,6 +22,7 @@ ap.add_argument("--every", type=float, default=3.0, help="seconds between frames
 ap.add_argument("--seconds", type=float, default=1800.0)
 ap.add_argument("--stop-file", default="/tmp/planethold.stop")
 ap.add_argument("--lost", type=int, default=5, help="consecutive frames without the planet -> exit 2")
+ap.add_argument("--gain-corr", type=float, default=0.6, help="fraction of the error each correction removes (Wi-Fi delay lengthens pulses; 1.0 overshot)")
 ap.add_argument("--exp", type=float, default=0.02); ap.add_argument("--gain", type=int, default=300)
 a = ap.parse_args()
 E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
@@ -65,7 +66,7 @@ try:
         d = np.array([2 * cx - w, 2 * cy - h]); e_as, n_as = float(d @ E) * a.arcsec_per_px, float(d @ N) * a.arcsec_per_px
         act = ""
         if abs(e_as) > a.tol or abs(n_as) > a.tol:
-            move(e_as, n_as); moves += 1; act = "  -> corrected"
+            move(e_as * a.gain_corr, n_as * a.gain_corr); moves += 1; act = "  -> corrected"
         if n % 5 == 1 or act:
             log("frame %d (%.0f s): planet %+4.0f\" east %+4.0f\" north of centre%s" % (n, time.time() - t0, e_as, n_as, act))
         time.sleep(max(0.0, a.every - (time.time() - tf)))
