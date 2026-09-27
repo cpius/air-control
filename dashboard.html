@@ -343,6 +343,16 @@ const pvList = () => STATE?.previews || (STATE?.preview ? [STATE.preview] : []);
 const pvPerPage = () => Math.max(1,
   Math.floor(($('#preview').clientWidth + PV_GAP) / (PV_MIN + PV_GAP)));
 
+// Meta as label/value rows. rec.artifact(..., meta={...}) used to land one
+// level down as {"meta": {...}}, so a key called meta is unwrapped and any
+// other nested object is spelled out as dotted keys, never [object Object].
+function flatMeta(o, pre = '') {
+  return Object.entries(o || {}).flatMap(([k, v]) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? flatMeta(v, k === 'meta' ? pre : pre + k + '.')
+      : [[pre + k, Array.isArray(v) ? JSON.stringify(v) : v]]);
+}
+
 function pvStart(list, n) {
   let i = pvAnchor ? list.findIndex(p => p.path === pvAnchor) : 0;
   if (i < 0) { i = 0; pvAnchor = null; }        // the anchor aged out of the list
@@ -386,8 +396,8 @@ function previewPane() {
       </div>
       <figcaption class="kv">
         <dt>${hhmm(p.t)}</dt><dd class="trunc">${esc(p.path.split('/').pop())}</dd>
-        ${p.meta ? Object.entries(p.meta).map(([k, v]) =>
-          `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') : ''}
+        ${flatMeta(p.meta).map(([k, v]) =>
+          `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}
       </figcaption></figure>`).join('')}</div>`;
   document.querySelectorAll('#preview .pv-nav').forEach(b =>
     b.onclick = () => pvPage(+b.dataset.dir));

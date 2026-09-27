@@ -230,12 +230,16 @@ class Recorder:
         self.write(kind="note", text=str(text)[:500], device=device,
                    level=level, meta=_clip(meta) if meta else None)
 
-    def artifact(self, kind, path, device=None, **meta):
+    def artifact(self, kind, path, device=None, meta=None, **kw):
         """An image or run directory the dashboard should display.
 
         `kind` is one of preview / focus_run / solve / video / other -- the
         dashboard keys its panes off it and shows the most recent of each.
+        Detail goes in `meta={...}` or as keywords; both are stored flat.
         """
+        if meta is not None and not isinstance(meta, dict):
+            kw["meta"] = meta         # never raise from inside a capture loop
+        meta = {**(meta if isinstance(meta, dict) else {}), **kw}
         self.write(kind="artifact", artifact=kind, path=os.path.abspath(path),
                    exists=os.path.exists(path),
                    device=device or {"preview": "camera", "focus_run": "focuser",
