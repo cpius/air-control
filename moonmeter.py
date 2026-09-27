@@ -75,7 +75,9 @@ class MoonMeter:
         while True:
             pts = [np.zeros(2)] + [self.offset_px(m, t, s1) for m in want]
             xs, ys = [p[0] for p in pts], [p[1] for p in pts]; mg = margin_arcsec / s1
-            w = int(math.ceil((max(xs) - min(xs) + 2 * mg) / 32) * 32); h = int(math.ceil(max(max(ys) - min(ys) + 2 * mg, min_h) / 32) * 32)
+            # the floor goes on BOTH sides: on 2026-09-27 the camera had E-W along sensor y, so the moons spread
+            # vertically and an unfloored width left a ~224 px window across the hold's 120 px deadband
+            w = int(math.ceil(max(max(xs) - min(xs) + 2 * mg, min_h) / 32) * 32); h = int(math.ceil(max(max(ys) - min(ys) + 2 * mg, min_h) / 32) * 32)
             if w <= sensor[0] and h <= sensor[1] or not want:
                 break
             far = max(want, key=lambda m: np.hypot(*self.offset_px(m, t, s1)))

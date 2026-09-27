@@ -213,7 +213,8 @@ centre_pulse() {
     guard "planetsearch"
     local sl=$CLIPDIR/$(date '+%H%M%S')_clip${1}_search.log
     say "LOOP planet not in the field -> defocused spiral search (log $sl)"
-    EAF_MIN=40000 EAF_MAX=70000 run_child $sl python3 -u $HERE/planetsearch.py --eaf-focus $EAF_FOCUS --eaf-search $((EAF_FOCUS - 15000)) --rings 2 --centre --east=$EAST --step-ra ${STEP_RA:-9} --step-dec ${STEP_DEC:-12} --disc-radius ${DISC_R:-2295}
+    local srch=$((EAF_FOCUS - ${SEARCH_DEFOCUS:-15000}))     # 09-27 f/15.7 train: focus 44760, so the search sits below the old 40000 floor
+    EAF_MIN=$(( srch < 40000 ? srch : 40000 )) EAF_MAX=70000 run_child $sl python3 -u $HERE/planetsearch.py --eaf-focus $EAF_FOCUS --eaf-search $srch --rings 2 --centre --east=$EAST --step-ra ${STEP_RA:-9} --step-dec ${STEP_DEC:-12} --disc-radius ${DISC_R:-2295} --arcsec-per-px ${SCALE:-0.110} --jump ${JUMP:-0.30}
     say "LOOP planetsearch: $(grep -E 'FOUND|not found' $sl | tail -1 | cut -c1-120)"
     run_child $cl python3 -u $HERE/planetcentre.py --east=$EAST --arcsec-per-px ${SCALE:-0.110}
     rc=$?
@@ -235,7 +236,7 @@ reacquire() {
 
 typeset -a CHECKED                          # clips already verified: clipcheck must never take one for the new clip
 typeset -A MEANING
-MEANING=(0 "recorded, planet held" 1 "error" 2 "bad arguments" 3 "no planet before recording" 4 "too dim (cloud)" 5 "stopped: planet lost"
+MEANING=(0 "recorded, planet held" 1 "error" 2 "bad arguments" 3 "no planet before recording" 4 "too dim (cloud)" 5 "stopped: planet lost" 8 "recorder refused to write"
          6 "stopped: frames stalled" 130 "interrupted" 143 "terminated")
 
 PULSE_ARGS=""; (( PULSE )) && PULSE_ARGS="--hold-mode pulse --east=$EAST"
@@ -260,6 +261,7 @@ for i in {1..$CLIPS}; do
     say "LOOP clip $i try $try: satvideo exit $rc (${MEANING[$rc]:-unknown}) ; log $cl"
     grep -E 'exposure test|ABORT|confirm|RECORDED|STOPPED|hold:|exposure used|Traceback|Error' $cl | tail -8 | sed 's/^/   /' >> $LOG   # already streamed above
     if (( rc == 2 )); then say "LOOP STOP: satvideo rejected its arguments (exit 2) -- fix the command, retrying cannot help"; exit 2; fi
+    if (( rc == 8 )); then say "LOOP STOP: the Air's recorder refused to write (exit 8) -- USB-C storage still attached, or the eMMC full"; exit 5; fi
     (( rc == 1 )) || break
     say "LOOP transient failure: $(grep -E 'FAILED after|Error|Traceback' $cl | tail -1 | cut -c1-110) -> $RETRY_PAUSE s pause"
     sleep $RETRY_PAUSE

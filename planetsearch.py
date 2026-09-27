@@ -32,6 +32,7 @@ ap.add_argument("--east", default="0.239,0.971", help="sky east on the sensor (c
 ap.add_argument("--centre", action="store_true", help="after a find, put the donut centre in the frame centre (known --disc-radius), then refocus")
 ap.add_argument("--disc-radius", type=float, default=2295.0, help="outer radius of the search donut, sensor px (8.4' disc at EAF -15000, 2026-09-26)")
 ap.add_argument("--centre-tol", type=float, default=35.0, help="arcsec")
+ap.add_argument("--arcsec-per-px", type=float, default=0.110, help="--centre: bin-1 scale (0.1866 for the 2026-09-27 f/15.7 lens-cell train)")
 a = ap.parse_args()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -140,7 +141,7 @@ try:
                 cur = img
                 for it in range(3):
                     dx, dy, q = dcentre(cur, a.bin, a.disc_radius)
-                    d = np.array([dx - 1920.0, dy - 1080.0]); e_as, n_as = float(d @ E) * 0.110, float(d @ N) * 0.110
+                    d = np.array([dx - 1920.0, dy - 1080.0]); e_as, n_as = float(d @ E) * a.arcsec_per_px, float(d @ N) * a.arcsec_per_px
                     log("  donut centre at sensor (%.0f, %.0f) (match %.2f): %+.0f\" east %+.0f\" north of the frame centre" % (dx, dy, q, e_as, n_as))
                     if abs(e_as) < a.centre_tol and abs(n_as) < a.centre_tol:
                         found["centred"] = True; break
