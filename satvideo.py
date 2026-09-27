@@ -64,6 +64,7 @@ ap.add_argument("--min-gap", type=float, default=4.0, help="seconds between corr
 ap.add_argument("--no-hold", action="store_true", help="record without corrections")
 ap.add_argument("--hold-mode", default="goto", choices=["goto", "pulse"], help="pulse: no goto (register not trustworthy, 2026-09-26) -- Dec by 20x joystick pulses, RA east by pausing tracking, RA west by a pulse")
 ap.add_argument("--east", default="0.239,0.971", help="--hold-mode pulse: sky east on the sensor (camangle.py)")
+ap.add_argument("--hold-gain", type=float, default=0.6, help="--hold-mode pulse: fraction of the error each correction removes. 1.0 overshot twice in a row on 2026-09-26 00:23 (Wi-Fi delay lengthens 20x pulses) and lost the planet")
 ap.add_argument("--exp-max", type=float, default=100.0, help="ms; the exposure test will not go longer than this")
 ap.add_argument("--gain-max", type=int, default=450, help="raise the gain in steps of 50 up to this when the exposure cap is not enough")
 ap.add_argument("--max-dim-exp", type=float, default=None, help="ms; if the exposure test needs more than this, treat it as cloud and do not record")
@@ -197,6 +198,7 @@ try:
         from air_rpc import Air
         E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
         dd = np.array([q.x - cx, q.y - cy]); e_as, n_as = float(dd @ E) * a.arcsec_per_px, float(dd @ N) * a.arcsec_per_px
+        e_as, n_as = e_as * a.hold_gain, n_as * a.hold_gain
         def mdo(fn):
             mm = Air(host(), 4400)
             try: return fn(mm)

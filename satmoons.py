@@ -23,6 +23,9 @@ ap.add_argument("--target-east", type=float, default=0.0, help="where Saturn sho
 ap.add_argument("--target-north", type=float, default=0.0)
 ap.add_argument("--tol", type=float, default=15.0, help="arcsec")
 ap.add_argument("--arcsec-per-px", type=float, default=0.110, help="bin-1 scale")
+ap.add_argument("--min-peak", type=float, default=20000.0, help="Saturn present only if the smoothed peak is this many ADU over the sky (saturated Saturn ~61000; no-Saturn frames <3400; a moon alone must not pass)")
+ap.add_argument("--min-area", type=float, default=2000.0, help="...and its half-peak blob this many px (Saturn ~13600 at bin 2; a moon ~100)")
+ap.add_argument("--lost", type=int, default=3, help="end the set after this many frames in a row without Saturn")
 ap.add_argument("--npy", nargs="*", default=None, help="skip the capture, stack these")
 a = ap.parse_args()
 E = np.array([float(v) for v in a.east.split(",")]); E /= np.linalg.norm(E); N = np.array([-E[1], E[0]])
@@ -34,9 +37,16 @@ signal.signal(signal.SIGTERM, _term)
 STAMP = time.strftime("%H%M%S")
 
 def saturn(img):
+    """Saturn's centroid, or None when it is not in the frame. Without the gate a lost planet made the
+    brightest hot pixel 'Saturn' and the hold chased it several arcmin away (02:53, 2026-09-27)."""
     sm = ndimage.gaussian_filter(img, 2); med = np.median(img)
+    if sm.max() - med < a.min_peak:
+        return None
     lab, n = ndimage.label(sm > med + 0.5 * (sm.max() - med))
-    k = int(np.argmax(ndimage.sum(np.ones_like(sm), lab, range(1, n + 1)))) + 1
+    areas = ndimage.sum(np.ones_like(sm), lab, range(1, n + 1))
+    k = int(np.argmax(areas)) + 1
+    if areas[k - 1] < a.min_area:
+        return None
     cy, cx = ndimage.center_of_mass(np.ones_like(sm), lab, k)          # centroid of the saturated blob, not max()
     return np.array([cx, cy])
 
@@ -59,7 +69,7 @@ def move(e_as, n_as):
         finally: mdo(lambda m: m.call("scope_set_track_state", [True]))
     elif e_as < -5: pulse("west", min(-e_as / 312.0, 1.0))
 
-files, times = [], []
+files, times, LOST = [], [], False
 if a.npy:
     files = sorted(a.npy)
 else:
@@ -67,9 +77,18 @@ else:
     p = Pipes(); stamp = STAMP
     try:
         p.setup("preview", a.exp, a.gain, a.bin); p.grab(timeout=40)
+        miss = 0
         for i in range(a.frames):
             img, w, h, info = p.grab(timeout=40); t = time.time(); img = img.astype(np.float64)
-            s = saturn(img); d = (s - np.array([w / 2.0, h / 2.0])) * SC
+            s = saturn(img)
+            if s is None:
+                miss += 1; LOST = miss >= a.lost
+                log("frame %2d/%d: Saturn NOT in the frame (smoothed peak %.0f over the sky < %.0f) -- no correction, not stacked (%d in a row)%s"
+                    % (i + 1, a.frames, ndimage.gaussian_filter(img, 2).max() - np.median(img), a.min_peak, miss, " -- ending the set" if LOST else ""))
+                if LOST: break
+                continue
+            miss = 0
+            d = (s - np.array([w / 2.0, h / 2.0])) * SC
             e_as, n_as = float(d @ E), float(d @ N)                  # where Saturn is, arcsec east/north of the frame centre
             fn = os.path.join(OUT, "%s_%03d_%gs_g%d_bin%d.npy" % (stamp, i, a.exp, a.gain, a.bin)); np.save(fn, img.astype(np.uint16)); files.append(fn); times.append(t)
             err_e, err_n = e_as - a.target_east, n_as - a.target_north
@@ -81,7 +100,14 @@ else:
         except Exception: pass
 # -- stack on Saturn ------------------------------------------------------------------------
 imgs = [np.load(f).astype(np.float64) for f in files]
-cs = [saturn(im) for im in imgs]; ref = cs[len(cs) // 2]
+cs = [saturn(im) for im in imgs]
+keep = [j for j, c in enumerate(cs) if c is not None]
+if len(keep) < len(imgs):
+    log("stack: Saturn in %d of %d frames; the others are left out" % (len(keep), len(imgs)))
+if not keep:
+    log("no frame with Saturn -- nothing to stack"); sys.exit(3)
+if len(times) == len(imgs): times = [times[j] for j in keep]
+imgs = [imgs[j] for j in keep]; cs = [cs[j] for j in keep]; ref = cs[len(cs) // 2]
 stack = np.mean([ndimage.shift(im, (ref[1] - c[1], ref[0] - c[0]), order=1, mode="nearest") for im, c in zip(imgs, cs)], axis=0)
 np.save(os.path.join(OUT, "%s_stack_%d.npy" % (STAMP, len(imgs))), stack.astype(np.float32))
 json.dump(dict(saturn=[float(ref[0]), float(ref[1])], t_mid=(float(np.mean(times)) if times else None), n=len(imgs), bin=a.bin, exp=a.exp, gain=a.gain), open(os.path.join(OUT, "%s_stack_%d.json" % (STAMP, len(imgs))), "w"))
@@ -128,3 +154,5 @@ for nm, off, pix, det in marks:
     cv2.circle(im8, (int(pix[0]), int(pix[1])), 22, col, 2, cv2.LINE_AA)
     cv2.putText(im8, nm, (int(pix[0]) + 26, int(pix[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.9, col, 2, cv2.LINE_AA)
 png = os.path.join(OUT, "%s_stack_%d_moons.png" % (STAMP, len(imgs))); cv2.imwrite(png, im8); log("wrote %s" % png)
+if LOST:
+    log("RESULT Saturn lost during the set (stack made from the frames before)"); sys.exit(2)
