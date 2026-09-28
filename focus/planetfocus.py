@@ -50,6 +50,7 @@ ap.add_argument("--jacobian", default="341,79,-104,362", help="px/arcmin at the 
 ap.add_argument("--hold-mode", default="goto", choices=["goto", "pulse"], help="pulse: no goto (for a register that cannot be trusted) -- Dec by 20x joystick pulses, RA east by pausing tracking, RA west by a pulse")
 ap.add_argument("--east", default="0.239,0.971", help="--hold-mode pulse: sky east on the sensor (camangle.py)")
 ap.add_argument("--arcsec-per-px", type=float, default=0.110, help="--hold-mode pulse: bin-1 scale")
+ap.add_argument("--nudge", default="slow", choices=["slow", "fast"], help="--hold-mode pulse: slow = slowpulse.Nudger (1x/4x, mount-timed dead-man), fast = the old 20x pulses")
 ap.add_argument("--outdir", default="/Users/madsdorup/ASICAP/telemetry/planetfocus")
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
@@ -124,6 +125,7 @@ p = Pipes()
 rows = []
 JM = np.array([float(v) for v in a.jacobian.split(",")]).reshape(2, 2)
 mt = None
+nudger = None
 def recentre_pulse(b, w, h):
     """Planet back to the centre without a goto (2026-09-26: register reset to 'home' by a power cut).
     Pier west: 'south' raises Dec, 'north' lowers it; 20x = 312"/s; tracking off moves the pointing east 15"/s."""
@@ -141,13 +143,20 @@ def recentre_pulse(b, w, h):
             try: m.call("scope_set_slew_rate", [4]); m.call("scope_move", [cmd]); time.sleep(secs)
             finally: m.call("scope_move", ["none"]); m.call("scope_set_slew_rate", [idx])
         mdo(f)
-    if abs(north_as) > 10:
-        pulse("south" if north_as > 0 else "north", min(abs(north_as) / 312.0, 1.0))
-    if east_as > 10:
-        try: mdo(lambda m: m.call("scope_set_track_state", [False])); time.sleep(min(east_as / 15.0, 8.0))
-        finally: mdo(lambda m: m.call("scope_set_track_state", [True]))
-    elif east_as < -10:
-        pulse("west", min(-east_as / 312.0, 1.0))
+    global nudger
+    if a.nudge == "slow":                             # mount-timed dead-man moves, as planetcentre.py
+        if nudger is None:
+            from slowpulse import Nudger
+            nudger = Nudger(host(), log=log)
+        nudger.nudge(east_as, north_as)
+    else:
+        if abs(north_as) > 10:
+            pulse("south" if north_as > 0 else "north", min(abs(north_as) / 312.0, 1.0))
+        if east_as > 10:
+            try: mdo(lambda m: m.call("scope_set_track_state", [False])); time.sleep(min(east_as / 15.0, 8.0))
+            finally: mdo(lambda m: m.call("scope_set_track_state", [True]))
+        elif east_as < -10:
+            pulse("west", min(-east_as / 312.0, 1.0))
     time.sleep(0.8)
     log("  re-centred by pulses: planet was %.0f px off = %+.0f\" east %+.0f\" north" % (float(np.hypot(*d)), east_as, north_as))
 
