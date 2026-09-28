@@ -61,7 +61,8 @@ def pulse(cmd, secs):
     def f(m):
         idx = res(m.call("scope_get_info", []))["slew_rate_index"]
         try:
-            m.call("scope_set_slew_rate", [4]); m.call("scope_move", [cmd]); time.sleep(secs)
+            # [dir, whole seconds] = mount-side dead-man timer: a lost "none" can't run the mount away
+            m.call("scope_set_slew_rate", [4]); m.call("scope_move", [cmd, int(math.ceil(secs))]); time.sleep(secs)
         finally:
             m.call("scope_move", ["none"]); m.call("scope_set_slew_rate", [idx])
     mcall(f); time.sleep(1.2)
