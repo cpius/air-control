@@ -4,7 +4,7 @@
 #
 #   tests/test_satloop.zsh
 #
-# One stub stands in for satvideo.py, cloudcheck.py and clipcheck.py; each call
+# One stub stands in for satvideo.py, cloudcheck.py, clipcheck.py, planetcentre.py and planetsearch.py; each call
 # takes the next exit code from codes.<name> and appends "<name> <code> <pid>" to calls.
 HERE=${0:A:h}
 T=$(mktemp -d ${TMPDIR:-/tmp}/satloop_test.XXXXXX)
@@ -39,10 +39,12 @@ while time.time() - t < float(os.environ.get("STUB_SECONDS", "0.3")):
 print({"satvideo": {0: "RECORDED 2.0s ; planet in 10 of 10 fresh frames", 1: "Traceback (most recent call last):\nTimeoutError: timed out",
                     3: "ABORT: no planet in the window", 5: "STOPPED EARLY after 1.0s: planet lost"},
        "clipcheck": {0: "VERDICT PLANET: stub", 1: "VERDICT UNCHECKED: stub", 2: "VERDICT EMPTY: stub", 3: "VERDICT PARTIAL: stub"},
-       "cloudcheck": {0: "VERDICT VISIBLE (check 1): stub"}}[name].get(code, "exit %d" % code), flush=True)
+       "cloudcheck": {0: "VERDICT VISIBLE (check 1): stub"},
+       "planetcentre": {0: "pass 0: planet at sensor (1920,1080): +0\" east +0\" north of centre", 2: "planet NOT in the full field (peak 20 over the sky)"},
+       "planetsearch": {0: "not found -> back to the start"}}[name].get(code, "exit %d" % code), flush=True)
 sys.exit(code)
 EOF
-cp $T/stub.py $T/air-control/planetary/satvideo.py; cp $T/stub.py $T/air-control/planetary/cloudcheck.py; cp $T/stub.py $T/air-control/planetary/clipcheck.py
+for n in satvideo cloudcheck clipcheck planetcentre planetsearch; do cp $T/stub.py $T/air-control/planetary/$n.py; done
 
 LOOP=$T/air-control/planetary/satloop.sh
 pass=0; fail=0
@@ -93,6 +95,14 @@ run --clips 1; check transient-error-retries $? 0 "satvideo satvideo satvideo cl
 
 prep "0 0" "3 0" "0"
 run --clips 2; check partial-file-reacquires $? 0 "satvideo clipcheck cloudcheck satvideo clipcheck" "VERDICT PARTIAL"
+
+# --pulse: a planetcentre miss runs the defocused search, unless NO_SEARCH=1
+prep "0" "0" ""; print -l 2 0 > $T/codes.planetcentre
+run --clips 1 --pulse; check pulse-miss-searches $? 0 "planetcentre planetsearch planetcentre satvideo clipcheck" "defocused spiral search"
+
+prep "3" "" ""; print -l 2 > $T/codes.planetcentre
+NO_SEARCH=1 run --clips 3 --pulse --max-fails 1; check no-search-fails-the-clip $? 0 "planetcentre satvideo" \
+  "no search (NO_SEARCH=1)" "LOOP STOP: 1 clips in a row without the planet"
 
 # stopping the loop reaches the running child by PID
 prep "0" "0" ""
