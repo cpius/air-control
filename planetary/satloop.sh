@@ -209,7 +209,11 @@ centre_pulse() {
   run_child $cl python3 -u $HERE/planetcentre.py --east=$EAST --arcsec-per-px ${SCALE:-0.110}
   local rc=$?
   say "LOOP planetcentre exit $rc: $(grep -E 'pass [0-9]|NOT in' $cl | tail -1 | cut -c1-120)"
-  if (( rc == 2 )); then
+  if (( rc == 2 && ${NO_SEARCH:-0} )); then
+    # 2026-09-28: a cloud hid Saturn and the search spiralled around empty sky while it drifted
+    # 1.25'/min out of reach; with NO_SEARCH=1 a miss just fails the try (pair with --max-fails)
+    say "LOOP planet not in the field -> no search (NO_SEARCH=1)"
+  elif (( rc == 2 )); then
     guard "planetsearch"
     local sl=$CLIPDIR/$(date '+%H%M%S')_clip${1}_search.log
     say "LOOP planet not in the field -> defocused spiral search (log $sl)"
