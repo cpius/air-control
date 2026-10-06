@@ -51,12 +51,14 @@ def eaf_to(pos):
     from air_rpc import Air
     cam = Air(ENV["ASIAIR_HOST"], 4700, key=os.path.join(ROOT, "embedded_key.pem"))
     c = lambda m, p=None: cam.call(m, p or [], timeout=20).get("result")
-    log(f"EAF {c('get_focuser_position')} -> {pos}: {c('move_focuser', [int(pos)])}")
-    t0 = time.time()
-    while time.time() - t0 < 240:
-        st = c("get_focuser_state")
-        if isinstance(st, dict) and st.get("state") == "idle": break
-        time.sleep(3)
+    import eaf                      # arrive going down: ~130 steps of EAF backlash
+    for leg in eaf.legs(c("get_focuser_position"), pos):
+        log(f"EAF {c('get_focuser_position')} -> {leg}: {c('move_focuser', [int(leg)])}")
+        t0 = time.time()
+        while time.time() - t0 < 240:
+            st = c("get_focuser_state")
+            if isinstance(st, dict) and st.get("state") == "idle": break
+            time.sleep(3)
     log(f"EAF at {c('get_focuser_position')}")
     cam.close()
 

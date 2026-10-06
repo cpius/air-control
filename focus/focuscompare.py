@@ -32,20 +32,25 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session, write_png
+import eaf
 
 HALF = 28          # crop half-size, in binned pixels
 ZOOM = 4
 
 
 def move_to(s, pos, timeout=30.0):
-    s.c("move_focuser", [int(pos)])
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        time.sleep(0.5)
-        st = s.c("get_focuser_state")
-        if isinstance(st, dict) and st.get("state") == "idle":
-            return True
-    return False
+    """Arrive at pos going down (eaf.legs: ~130 steps of EAF backlash)."""
+    for leg in eaf.legs(s.c("get_focuser_position"), pos):
+        s.c("move_focuser", [int(leg)])
+        t0 = time.time()
+        while True:
+            if time.time() - t0 > timeout:
+                return False
+            time.sleep(0.5)
+            st = s.c("get_focuser_state")
+            if isinstance(st, dict) and st.get("state") == "idle":
+                break
+    return True
 
 
 def detect(v, w, h, nmax=10, edge=24, sat=60000):

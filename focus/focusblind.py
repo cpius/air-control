@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import numpy as np
 from fastgrab import Grabber
 from daypipes import log, boxmean
+import eaf
 
 HOT = [(1919, 336), (125, 48)]        # measured, stable, bin2 coordinates
 
@@ -45,20 +46,21 @@ def count_sources(img, nsig=8.0, sep=40):
     return len(pts), bg, sig, pts
 
 def move_to(g, pos, timeout=180):
+    """Arrive at pos going down (eaf.legs: ~130 steps of EAF backlash)."""
     s = g.s
     start = s.c("get_focuser_position")
-    n = abs(int(pos) - int(start))
-    if n == 0:
-        return
-    log("  move focuser %s -> %d (%d steps)" % (start, pos, n))
-    s.c("move_focuser", [int(pos)])
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        time.sleep(0.8)
-        st = s.c("get_focuser_state")
-        if isinstance(st, dict) and st.get("state") == "idle":
-            return
-    log("  MOVE TIMED OUT")
+    for leg in eaf.legs(start, pos):
+        log("  move focuser %s -> %d (%d steps)" % (start, leg, abs(leg - int(start))))
+        s.c("move_focuser", [int(leg)])
+        t0 = time.time()
+        while True:
+            if time.time() - t0 > timeout:
+                log("  MOVE TIMED OUT"); return
+            time.sleep(0.8)
+            st = s.c("get_focuser_state")
+            if isinstance(st, dict) and st.get("state") == "idle":
+                break
+        start = leg
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

@@ -96,6 +96,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from air_rpc import Air
+import eaf
 from airlog import add_log_args, configure_logging, get_logger
 from main_image import MainImage
 
@@ -135,7 +136,15 @@ class Focuser:
         return (self._r("get_focuser_info") or {}).get("temperature")
 
     def move(self, pos, timeout=40.0):
-        """Absolute move. Returns once the EAF reports idle (~2.1 ms/step).
+        """Absolute move, arriving from above (eaf.legs: ~130 steps of EAF
+        backlash). Returns the settled position."""
+        ap = self.position()
+        for leg in eaf.legs(ap, pos):
+            ap = self._go(leg, timeout)
+        return ap
+
+    def _go(self, pos, timeout):
+        """One leg. Returns once the EAF reports idle (~2.1 ms/step).
 
         At 2.1 ms/step a 3000-step hop is 6.2 s of silence, so the wait reports
         the live position once a second: a stuck EAF and a long move look

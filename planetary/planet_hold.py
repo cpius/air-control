@@ -54,6 +54,7 @@ import math, os, sys, time
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from session import Session
+import eaf
 SCR=os.environ.get('PLANET_HOLD_LOG', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT=open(SCR+'/sess.txt','w',buffering=1)
 def p(*a): OUT.write(" ".join(str(x) for x in a)+"\n")
@@ -93,6 +94,15 @@ def sharp(im,q,half=110):
     return float((gx*gx+gy*gy).sum())/(flux*flux)*1e6
 
 s=Session(HOST,KEY,with_mount=True)
+
+def eaf_to(fp, timeout=30):
+    """Arrive at fp going down (eaf.legs: ~130 steps of EAF backlash)."""
+    for leg in eaf.legs(s.c("get_focuser_position"), fp):
+        s.c("move_focuser",[int(leg)]); t0=time.time()
+        while time.time()-t0 < timeout:
+            time.sleep(0.3)
+            st=s.c("get_focuser_state")
+            if isinstance(st,dict) and st.get("state")=="idle": break
 J={"ra":np.array([16.0,34.0]),"dec":None}
 def grab():
     v,w,h=s.fresh(1)
@@ -248,7 +258,7 @@ try:
             while time.time()-tc < 120:
                 q=centre("r%d"%rnd,maxit=1)
                 if q is not None and math.hypot(target[0]-q[0],target[1]-q[1])<60: break
-            s.c("move_focuser",[int(fp)]); time.sleep(2.0)
+            eaf_to(fp); time.sleep(0.5)
             try: grab()          # frame exposed during the move
             except Exception: pass
             # Cloud keeps blanking the planet for a few seconds at a time. Do
@@ -279,7 +289,7 @@ try:
             m=float(np.median(acc[fp])); p("  %6d  %.4f  %s"%(fp,m,["%.4f"%x for x in acc[fp]]))
             if m>bv: best,bv=fp,m
     if best:
-        p("BEST %d (%.4f)"%(best,bv)); s.c("move_focuser",[int(best)]); time.sleep(3)
+        p("BEST %d (%.4f)"%(best,bv)); eaf_to(best); time.sleep(0.5)
         p("focuser now %s"%s.c("get_focuser_position"))
     p("--- holding ---")
     t0=time.time()
