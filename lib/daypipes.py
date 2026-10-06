@@ -23,6 +23,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from session import Session
+import eaf
 
 HOST = os.environ.get("ASIAIR_HOST")
 
@@ -223,14 +224,22 @@ def focuser_pos(p):
     return int(p.c("get_focuser_position"))
 
 
-def move_to(p, pos, timeout=120):
+def move_to(p, pos, timeout=120, overshoot=None):
+    """Move the EAF to pos, always arriving from above (lib/eaf.py: backlash)."""
     pos = int(pos)
     lo, hi = LO, HI
     if not (lo <= pos <= hi):
         raise ValueError("position %d outside the permitted %d..%d" % (pos, lo, hi))
-    start = focuser_pos(p)
-    n = abs(pos - start)
-    if n == 0:
+    here = focuser_pos(p)
+    if pos >= hi and eaf.OVERSHOOT > 0 and overshoot != 0:
+        log("  EAF %d is at the permitted maximum: cannot approach from above" % pos)
+    for leg in eaf.legs(here, pos, hi=hi, overshoot=overshoot):
+        here = _eaf_go(p, here, leg, timeout)
+    return here
+
+
+def _eaf_go(p, start, pos, timeout):
+    if pos == start:
         return start
     log("  EAF %d -> %d (%+d steps)" % (start, pos, pos - start))
     p.c("move_focuser", [pos])
