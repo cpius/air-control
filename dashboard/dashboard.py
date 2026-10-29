@@ -7,9 +7,10 @@ running across an Air restart, a power cycle, or a crash of whatever tool was
 driving, and it will simply pick the story back up. That separation is the
 point: the dashboard must never be able to disturb the session it is watching.
 
-Five panes, in the order they matter at 2 a.m.:
+Six panes, in the order they matter at 2 a.m.:
 
     sky        conditions now, the 30-minute outlook, radar, Sun and Moon
+    dew heater the corrector ring: dewctl's duty, watts, margin, and why it is blocked
     focus      the most recent sweep: V-curve, per-step measurements, closeups
     preview    the recent frames off the camera, newest first, paged
     commands   every request sent to the Air, with round-trip time and errors
@@ -52,6 +53,10 @@ MAX_COMMANDS = 300         # newest kept; the log on disk stays complete
 MAX_EVENTS_PER_DEVICE = 120
 WEATHER_TTL = 300          # seconds; Open-Meteo updates on ~15-minute steps
 DEVICE_ORDER = ["mount", "camera", "guide", "focuser", "solver", "system", "app", "other"]
+# Hidden from the commands pane: the 4700 handshake every connection makes, and
+# read-only status polls. Still in the log on disk.
+POLL_METHODS = {"get_verify_str", "verify_client", "pi_is_verified",
+                "get_power_supply", "get_camera_state"}
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +124,10 @@ def build_commands(rows):
         elif k == "note":
             out.append({"t": r.get("t"), "device": r.get("device"), "state": "note",
                         "method": r.get("text"), "params": None, "dt": None})
-    return out[-MAX_COMMANDS:]
+    # Status polls (dewctl: 5 calls per 15 s tick) would otherwise push every
+    # real command out of the newest MAX_COMMANDS. Errors stay visible.
+    keep = [e for e in out if e.get("method") not in POLL_METHODS or e.get("state") == "error"]
+    return keep[-MAX_COMMANDS:], len(out) - len(keep)
 
 
 def build_feedback(rows):
@@ -296,10 +304,64 @@ def weather(force=False):
 
 
 # ---------------------------------------------------------------------------
+# Dew heater: what ~/ASICAP/tools/dewctl.py logs, one line per 15 s tick
+# ---------------------------------------------------------------------------
+
+DEW_GLOB = os.path.join(ROOT, "telemetry", "*", "dew.jsonl")
+DEW_RUN_GAP_S = 120        # a longer gap between ticks starts a new dewctl run
+DEW_POINTS = 400           # chart points; a night of 15 s ticks is ~1700 rows
+_dew = {"key": None, "data": None}
+
+
+def read_dew(pattern=DEW_GLOB, tail_bytes=1_500_000):
+    """The latest dewctl run: its newest record plus a thinned series for the chart.
+
+    dewctl names the file by the date the run STARTED, so after midnight the
+    newest file by mtime is still tonight's. --dry-run rows are skipped: they
+    never reached the Shelly.
+    """
+    files = glob.glob(pattern)
+    if not files:
+        return None
+    path = max(files, key=os.path.getmtime)
+    st = os.stat(path)
+    if _dew["key"] == (path, st.st_mtime, st.st_size):
+        return _dew["data"]
+    with open(path, "rb") as f:
+        f.seek(max(0, st.st_size - tail_bytes))
+        lines = f.read().splitlines()[1 if st.st_size > tail_bytes else 0:]
+    rows = []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if not r.get("dry_run") and _epoch(r.get("t")) is not None:
+            rows.append(r)
+    start = 0
+    for i in range(len(rows) - 1, 0, -1):
+        if _epoch(rows[i]["t"]) - _epoch(rows[i - 1]["t"]) > DEW_RUN_GAP_S:
+            start = i
+            break
+    rows = rows[start:]
+    data = None
+    if rows:
+        step = max(1, -(-len(rows) // DEW_POINTS))
+        data = {"file": path, "last": rows[-1],
+                "age_s": round(time.time() - _epoch(rows[-1]["t"]), 1),
+                "run_start": rows[0]["t"], "ticks": len(rows),
+                "series": [{k: r.get(k) for k in ("t", "duty", "want", "apower", "margin")}
+                           for r in rows[::step] + ([rows[-1]] if (len(rows) - 1) % step else [])]}
+    _dew["key"], _dew["data"] = (path, st.st_mtime, st.st_size), data
+    return data
+
+
+# ---------------------------------------------------------------------------
 
 def build_state(data_dir=DATA, roots=(ROOT,), with_weather=True):
     rows, path = read_events(data_dir)
     fb, noise, counts = build_feedback(rows)
+    commands, polls_hidden = build_commands(rows)
     focus_dir = find_focus_run(rows, roots)
     previews = find_previews(rows, roots)
     last = rows[-1].get("t") if rows else None
@@ -308,7 +370,8 @@ def build_state(data_dir=DATA, roots=(ROOT,), with_weather=True):
         "log": {"file": path, "rows": len(rows), "last_record": last,
                 "age_s": _age(last)},
         "weather": weather() if with_weather else None,
-        "commands": build_commands(rows),
+        "dew": read_dew(),
+        "commands": commands, "polls_hidden": polls_hidden,
         "feedback": fb, "noise": noise, "event_counts": counts,
         "device_order": DEVICE_ORDER,
         "focus": read_focus_run(focus_dir),

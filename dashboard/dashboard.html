@@ -143,6 +143,11 @@ tr:hover td{background:#ffffff06}
     <div id="sky"></div>
   </section>
 
+  <section class="card wide" id="c-dew">
+    <div class="head"><h2>Dew heater</h2><span class="sub" id="dew-sub"></span></div>
+    <div id="dew"></div>
+  </section>
+
   <section class="card" id="c-focus">
     <div class="head"><h2>Focus</h2><span class="sub" id="focus-sub"></span></div>
     <div id="focus"></div>
@@ -195,9 +200,9 @@ function sky(w) {
       <div>
         ${cloudChart(w.series||[])}
         <div class="kv" style="margin-top:12px">
-          <dt>dew</dt><dd>${esc(c.dew_risk||'?')} — heater ${
+          <dt>dew</dt><dd>${esc(c.dew_risk||'?')} — camera window heater ${
             ['warning','critical'].includes(c.dew_risk)
-              ? 'earns its 6.2 W' : 'off saves 6.2 W'}</dd>
+              ? 'earns its 6.2 W' : 'off saves 6.2 W'} (corrector ring: Dew heater card)</dd>
           <dt>twilight</dt><dd>${esc(s.twilight||'?')}${
             s.twilight==='nautical' ? ' — no astronomical dark at 55.7°N in summer' : ''}</dd>
           <dt>moon</dt><dd>${num((m.illumination||0)*100)}% lit, az ${num(m.azimuth)}°${
@@ -234,6 +239,72 @@ function cloudChart(series) {
       stroke="var(--live)" stroke-width="1.6"/>
     ${rain}${ticks}
   </svg>`;
+}
+
+/* ---------------- dew heater ---------------- */
+// dewctl.py's own log, read by the server. The ring is on a Shelly, not the
+// Air, so nothing about it shows up among the commands or messages below.
+function dewPane(d) {
+  if (!d) return `<p class="empty">dewctl has not run — python3 -u ~/ASICAP/tools/dewctl.py</p>`;
+  const r = d.last, air = r.air || {}, live = d.age_s != null && d.age_s < 60;
+  const state = !live
+      ? `<b style="color:var(--bad)">dewctl stopped</b> — last tick ${num(d.age_s/60)} min ago;
+         the Shelly's dead-man has switched the ring off`
+    : r.blocked ? `<b style="color:var(--warn)">blocked</b> — ${esc(r.blocked)} (wants ${num(r.want)}%)`
+    : r.duty > 0 ? `<b style="color:var(--ok)">heating</b>`
+    : `<b>idle</b> — corrector margin is wide enough`;
+  const wxs = r.T == null ? 'weather stale — running the fallback duty'
+    : `${num(r.T,1)}° / dew point ${num(r.Td,1)}° at Landbohøjskolen, cloud ${
+        r.cc == null ? '?' : num(r.cc)+'%'}, obs ${num(r.obs_age_min)} min old`;
+  return `<div class="verdict">${state}</div>
+    <div class="wx">
+      <div><span>ring</span><b>${num(r.duty)}%</b></div>
+      <div><span>power</span><b>${num(r.apower,1)} W</b></div>
+      <div><span>margin</span><b class="${r.margin < 0 ? 'v-rain' : r.margin < 2 ? 'v-worsening' : ''}">${
+        num(r.margin,1,'?')}K</b></div>
+      <div><span>spread</span><b>${r.T == null ? '?' : num(r.T - r.Td,1)}K</b></div>
+      <div><span>tonight</span><b>${num(r.wh,1)} Wh</b></div>
+      <div><span>shelly</span><b>${num(r.shelly_c)}°</b></div>
+    </div>
+    ${dewChart(d.series || [])}
+    <div class="kv" style="margin-top:12px">
+      <dt>weather</dt><dd>${wxs}</dd>
+      <dt>margin</dt><dd>dew spread − ${num(r.sky,1,'?')} K for the clear sky the corrector radiates to</dd>
+      <dt>supply</dt><dd>${num(r.voltage,1)} V at the ring · camera ${num(air.amps,2,'?')} A, ${
+        esc(air.camera || '?')}${air.cooler ? ', cooler ON' : ''}</dd>
+      <dt>run</dt><dd>since ${hhmm(d.run_start).slice(0,5)}, ${d.ticks} ticks</dd>
+    </div>`;
+}
+
+function dewChart(series) {
+  if (series.length < 2) return '';
+  const W = 620, H = 110, P = 26, n = series.length;
+  const x = i => P + i * (W - P - 30) / (n - 1);
+  const yd = v => H - 16 - (v / 100) * (H - 30);           // duty, left axis
+  const ms = series.map(s => s.margin).filter(v => v != null);
+  const lo = Math.min(-2, ...ms), hi = Math.max(6, ...ms);
+  const ym = v => H - 16 - (v - lo) / (hi - lo) * (H - 30); // margin, right axis
+  const duty = series.map((s, i) => [x(i), yd(s.duty ?? 0)]);
+  const area = `M${duty[0][0]},${H-16} ` + duty.map(p => `L${p[0]},${p[1]}`).join(' ')
+    + ` L${duty[n-1][0]},${H-16} Z`;
+  const marg = series.map((s, i) => s.margin == null ? null : `${x(i)},${ym(s.margin)}`)
+    .filter(Boolean).join(' ');
+  const ticks = series.map((s, i) => (i % Math.ceil(n / 6) === 0)
+    ? `<text x="${x(i)}" y="${H-2}" fill="var(--faint)" font-size="9"
+         text-anchor="middle">${hhmm(s.t).slice(0,5)}</text>` : '').join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+    <line x1="${P}" x2="${W-30}" y1="${ym(0)}" y2="${ym(0)}" stroke="var(--bad)" stroke-dasharray="3 3" opacity=".6"/>
+    <text x="${W-26}" y="${ym(0)+3}" fill="var(--bad)" font-size="9">0 K</text>
+    <text x="${W-26}" y="${ym(hi)+8}" fill="var(--live)" font-size="9">${num(hi)} K</text>
+    <text x="2" y="${yd(100)+4}" fill="var(--faint)" font-size="9">100%</text>
+    <text x="10" y="${yd(0)+4}" fill="var(--faint)" font-size="9">0</text>
+    <path d="${area}" fill="var(--warn)" opacity=".22"/>
+    <polyline points="${duty.map(p=>p.join(',')).join(' ')}" fill="none" stroke="var(--warn)" stroke-width="1.4"/>
+    <polyline points="${marg}" fill="none" stroke="var(--live)" stroke-width="1.6"/>
+    ${ticks}
+  </svg>
+  <div class="mono-dim" style="font-size:11px"><span style="color:var(--warn)">■</span> ring duty
+    · <span style="color:var(--live)">—</span> corrector margin (red dashes: dew forms below)</div>`;
 }
 
 function radar(r) {
@@ -475,6 +546,9 @@ function render(s) {
     ? 'open-meteo + rainviewer · ' + hhmm(s.weather.fetched) : '';
   animateRadar(s.weather?.radar);
 
+  $('#dew').innerHTML = dewPane(s.dew);
+  $('#dew-sub').textContent = s.dew ? `dewctl · Shelly W channel · ${hhmm(s.dew.last.t)}` : '';
+
   $('#focus').innerHTML = focusPane(s.focus);
   $('#focus-sub').textContent = s.focus ? `${s.focus.name} · ${hhmm(s.focus.mtime)}` : '';
 
@@ -482,7 +556,8 @@ function render(s) {
 
   $('#cmd').innerHTML = cmdPane(s.commands || []);
   $('#cmd-sub').textContent = `${(s.commands||[]).length} shown · `
-    + `${(s.commands||[]).filter(c=>c.state==='error').length} errors`;
+    + `${(s.commands||[]).filter(c=>c.state==='error').length} errors`
+    + (s.polls_hidden ? ` · ${s.polls_hidden} status polls hidden` : '');
 
   $('#fb').innerHTML = fbPane(s);
   const tot = Object.values(s.event_counts||{}).reduce((a,b)=>a+b,0);
