@@ -414,9 +414,14 @@ keep the Bayer mosaic, so every metric folds 2×2 superpixels first).
 | `dashboard/fake_air.py`, `dashboard/demo_data.py` | A fake Air and synthetic data for developing the dashboard offline. |
 | `horizon/ladder.py`, `horizon/refine.py`, `lib/skysurvey.py` | Horizon survey: solve-verified bisection of each roofline; `make_horizon.py` + `survey_report.py` render the mask and map. |
 | `rig/recover.py`, `rig/restore_mount.py`, `pointing/resync.py` | Bring the rig back after an Air restart or a lost pointing model. |
+| `rig/pcap_rpc.py` | Turn a tcpdump of the ASIAIR app into a readable RPC transcript: how the app's mount re-attach was found. |
+| `rig/primecam.py` | After an Air boot, reopen the camera and take one frame, so `get_current_img` stops answering "there is no image now". |
 | `rig/wifi.py`, `pointing/lock.py` | Force the 2.4 GHz band; guarantee a single client on the mount. |
 | `planetary/planet_track.py` | Closed-loop planet centring with joystick pulses, 1.5–2.8 Hz, runs during AVI recording. |
 | `pointing/joyslew.py` | Joystick slew closed on the mount register, chunked and capped, aborts on a register jump. |
+| `pointing/astapsolve.py` | Blind-solve a sparse, defocused frame with ASTAP, fed our own star detections as a synthetic image (0.2 s instead of 15 min). |
+| `pointing/scalesolve.py` | Solve a tiny field against a Gaia cone when the scale is known and the position only to a few degrees. |
+| `pointing/fixpoint.py` | Solve, walk the sync in to the JNow truth, goto, repeat until the target is centred. |
 | `pointing/drift.py` | Polar-alignment drift test: plate-solve one field for N minutes, fit the Dec drift. |
 | `capture/grab.py` | One fresh preview frame to a 16-bit FITS. |
 | `planetary/centre_planet.py`, `focus/focusstar.py`, `focus/focus_planet.py` | Goto-based centring; interleaved star focus sweep; V-curve focus on a planet's disc. |

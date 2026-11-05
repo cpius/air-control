@@ -47,7 +47,15 @@ def main():
                                    "time_zone": "UTC"}], timeout=10)
     print(f"   pi_set_time -> code {r.get('code')}")
 
-    step(2, "attach the mount")
+    step(2, "re-attach the mount the way the ASIAIR app does (2026-10-03 capture)")
+    # The app's sequence cleared goto 300 after a power-up where set_connected
+    # without "async" and a bare Go Home did not: detach, ~9 s, attach with
+    # async, then time + site + Go Home. See docs/RPC_METHODS.md.
+    if not m.call("get_connected_mount_info", [], timeout=8).get("error"):
+        m.call("set_connected", [{"mount": False}], timeout=12)
+        for k in range(9):
+            time.sleep(1)
+            print(f"   detached {k+1}s", flush=True)
     m.call("set_connected", [{"mount": True, "async": True}], timeout=12)
     t0 = time.time()
     while time.time() - t0 < 30:
@@ -61,16 +69,17 @@ def main():
         sys.exit("   mount would not attach")
 
     step(3, "mount clock — BEFORE homing")
+    # Exactly the app's shape: zero-padded UTC, and the STANDARD-time zone offset
+    # as "%.2f" ("1.00" in Copenhagen even in summer). We used to send "0".
     n = datetime.datetime.now(datetime.timezone.utc)
-    m.call("scope_set_time", [f"{n.year}-{n.month}-{n.day}T{n.hour}:{n.minute}:{n.second}", "0"],
+    m.call("scope_set_time", [n.strftime("%Y-%m-%dT%H:%M:%S"), "%.2f" % (-time.timezone / 3600.0)],
            timeout=10)
     i = m.call("scope_get_info", [], timeout=10)["result"]
-    print(f"   utc_time = {i['utc_time']}  (sidereal {i['sidereal_time']:.4f} h)")
+    print(f"   utc_time = {i['utc_time']}  time_offset {i.get('time_offset')!r}  (sidereal {i['sidereal_time']:.4f} h)")
 
-    step(4, "site")
-    if abs(i["Lat"]) < 0.01 and abs(i["Lon"]) < 0.01:
-        m.call("scope_set_location", [LAT, LON], timeout=10)
-        i = m.call("scope_get_info", [], timeout=10)["result"]
+    step(4, "site (the app always writes it after attaching)")
+    m.call("scope_set_location", [LAT, LON], timeout=10)
+    i = m.call("scope_get_info", [], timeout=10)["result"]
     print(f"   lat {i['Lat']:.5f}  lon {i['Lon']:.5f}")
 
     step(5, "guide rate + tracking")
@@ -83,7 +92,15 @@ def main():
     if a.no_test:
         return
 
-    step(6, "does scope_goto work again?  (the whole point)")
+    step(6, "Go Home, then: does scope_goto work again?  (the whole point)")
+    m.call("scope_park", [], timeout=10)
+    t0 = time.time()
+    while time.time() - t0 < 120:
+        time.sleep(2)
+        s = m.call("scope_get_info", [], timeout=8)["result"]
+        print(f"   t+{time.time()-t0:4.0f}s homing  Dec={s['Dec']:.3f}  move={s['move_status']}", flush=True)
+        if time.time() - t0 > 4 and s["move_status"] == "none" and abs(s["Dec"] - 90) < 0.01:
+            break
     i = m.call("scope_get_info", [], timeout=10)["result"]
     tgt_ra, tgt_dec = (i["RA"] + 0.5) % 24, min(i["Dec"] + 8.0, 80.0)
     print(f"   from RA {i['RA']:.4f} Dec {i['Dec']:.3f} -> RA {tgt_ra:.4f} Dec {tgt_dec:.3f}")
