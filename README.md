@@ -419,6 +419,9 @@ keep the Bayer mosaic, so every metric folds 2×2 superpixels first).
 | `pointing/joyslew.py` | Joystick slew closed on the mount register, chunked and capped, aborts on a register jump. |
 | `pointing/drift.py` | Polar-alignment drift test: plate-solve one field for N minutes, fit the Dec drift. |
 | `capture/grab.py` | One fresh preview frame to a 16-bit FITS. |
+| `capture/nightwatch.py` | Unattended deep-sky supervisor: measures each sub, restarts guiding or the sequence, refocuses, re-centres. |
+| `capture/subwatch.py` | Follow an autorun folder on the Air's share and measure each sub as it lands (FWHM, ecc, stars). |
+| `capture/pnhold.py` | Lucky imaging of a small bright deep-sky target: hold it on the focus page and save every short sub. |
 | `planetary/centre_planet.py`, `focus/focusstar.py`, `focus/focus_planet.py` | Goto-based centring; interleaved star focus sweep; V-curve focus on a planet's disc. |
 | `focus/focus_blurscale.py`, `focus/focus_texture.py`, `focus/focus_descend.py` | Focus metrics on the lunar surface for when the image is a blur (superpixel-folded, cloud-tolerant). |
 | `docs/RPC_METHODS.md` | Full method map for 4700 and 4400, extracted from the app. |
