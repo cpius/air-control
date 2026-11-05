@@ -123,6 +123,21 @@ and re-attaching the mount driver. `scope_move`, `scope_park` and `scope_sync`
 all work normally, which hides the fault.
 
 Workarounds that do work: joystick via `scope_move`, and `scope_park`.
+
+**2026-10-03 — the app's mount re-attach, captured** (`rig/pcap_rpc.py` on a tcpdump of the ASIAIR app
+running on the Mac). Before it, the app's own `start_auto_goto` failed with the same 300/501. Its
+re-attach, which cleared the fault, on 4400:
+
+```
+set_connected [{"mount": false}]            # then ~9 s of mount_scan_port / get_mount_list polling
+set_connected [{"mount": true, "async": true}]   # -> events AutoReconnectMount, OpenMount complete
+scope_set_time ["2026-10-03T18:02:52", "1.00"]   # zero-padded UTC + standard-time offset; time_offset "-0" -> "1"
+scope_set_location [55.6897, 12.5553]
+scope_park                                   # Go Home; the next start_auto_goto slewed in 16 s
+```
+
+Once cleared it stays cleared (offset "0" and unpadded dates then goto fine), so which step matters is
+untested; `rig/restore_mount.py` now replays the whole sequence.
 Next thing to try is a mount-side reset/firmware reflash — stop looking for this
 in the protocol.
 
@@ -314,6 +329,12 @@ Device-open (global): `open_camera` / `close_camera`, `open_focuser` /
 `get_app_setting`, `get_setting`, `get_test_setting`, `get_svr_version`,
 `pi_get_info`, `pi_station_state`. Exposure: `set_exposure`, `start_exposure`,
 `stop_exposure`.
+
+`set_focal_length [int]` (mm, 4700) -- shape from the APK (`PreviewGateway.setFocalLength`:
+`listOf(length)`), confirmed 2026-10-19: returns 0, `get_focal_length` and
+`get_device_state.device.focal_len` read it back. The Air's solver searches at this scale and
+fails when it is far off (1875 set with the reducer giving 1349 = no solves); a successful solve
+reports `focal_len` ~equal to the setting, so it is not a measurement.
 
 ## Operational traps (learned on sky, 2026-08-10/15)
 

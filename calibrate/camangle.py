@@ -3,7 +3,8 @@
 --pause-s between them. With tracking off the image slides sky-WEST (~136 px/s at 0.110"/px),
 so the slide gives east on the sensor -- what moonadc.py --east needs. Re-run it whenever the
 ADC or the camera has been turned (re-levelling the ADC turns the camera with it).
-Tracking is always re-enabled, on Lunar.
+Tracking is always re-enabled, on the rate it had before (2026-10-04: it used to force Lunar,
+which left a Saturn session tracking at the lunar rate).
 
     ASIAIR_HOST=192.168.1.36 python3 -u calibrate/camangle.py --pause-s 1.5
 """
@@ -38,6 +39,8 @@ h = host(); p = Pipes(h); frames = []
 try:
     p.setup("preview", a.exp_ms / 1000.0, a.gain, 1); p.grab(timeout=40)
     img, *_ = p.grab(timeout=40); frames.append(img); log("frame 0 (p99.5 %.0f)" % np.percentile(img, 99.5))
+    _mo = mount(h, lambda m: res(m.call("scope_get_track_mode", [])))
+    MODE = _mo["list"][_mo["index"]]
     t0 = time.time()
     mount(h, lambda m: m.call("scope_set_track_state", [False])); time.sleep(a.pause_s)
     mount(h, lambda m: m.call("scope_set_track_state", [True]))
@@ -49,7 +52,8 @@ finally:
     def restore(m):
         m.call("scope_set_track_state", [True])
         mo = res(m.call("scope_get_track_mode", []))
-        if mo["list"][mo["index"]] != "Lunar": m.call("scope_set_track_mode", ["Lunar"])
+        want = globals().get("MODE", "Sidereal")
+        if mo["list"][mo["index"]] != want: m.call("scope_set_track_mode", [want])
         mo = res(m.call("scope_get_track_mode", []))
         return res(m.call("scope_get_track_state", [])), mo["list"][mo["index"]]
     try: log("RESTORED: tracking %s, mode %s" % mount(h, restore))

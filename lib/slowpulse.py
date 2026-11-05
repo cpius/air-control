@@ -8,8 +8,9 @@
   time; the timer only guarantees a lost "none" can never leave the mount running.
 * Dec loses 6-9" on every reversal (backlash; none measurable in RA): the first Dec move after a change
   of direction is lengthened by `backlash`. Unknown history (first move of a process) gets no extra.
-* Pier west: 'south' RAISES Dec, i.e. moves the pointing north ([[mount-direction-sign-flips]]); pass
-  dec_up="north" on the other pier side.
+* Pier west: 'south' RAISES Dec, i.e. moves the pointing north ([[mount-direction-sign-flips]]); on
+  pier east 'north' does. dec_up="auto" (the default since 2026-10-04) reads pier_side when the Nudger
+  is made -- the old hard-coded "south" drove Saturn out of the field after a flip.
 """
 import math, time
 from air_rpc import Air
@@ -18,7 +19,17 @@ RATE_AS = {0: 15.0, 2: 60.0}                   # "/s at slew-rate index 0 (1x) a
 
 
 class Nudger:
-    def __init__(self, host, dec_up="south", backlash=8.0, min_as=3.0, fast_above=45.0, log=print):
+    def __init__(self, host, dec_up="auto", backlash=8.0, min_as=3.0, fast_above=45.0, log=print):
+        if dec_up == "auto":
+            m = Air(host, 4400, timeout=10)
+            try:
+                pier = m.call("scope_get_info", [], timeout=10)["result"].get("pier_side")
+            finally:
+                m.close()
+            dec_up = {"west": "south", "east": "north"}.get(pier)
+            if dec_up is None:
+                raise RuntimeError("pier_side is %r -- pass dec_up explicitly" % pier)
+            log("Nudger: pier %s, '%s' moves the pointing north" % (pier, dec_up))
         self.host, self.dec_up = host, dec_up
         self.dec_down = {"south": "north", "north": "south"}[dec_up]
         self.backlash, self.min_as, self.fast_above, self.log = backlash, min_as, fast_above, log
@@ -28,12 +39,19 @@ class Nudger:
         rate = 0 if amount <= self.fast_above else 2
         secs = amount / RATE_AS[rate]
         m.call("scope_set_slew_rate", [rate])
-        t0 = time.time()
-        m.call("scope_move", [cmd, max(1, int(math.ceil(secs)))])
-        rest = secs - (time.time() - t0)
-        if rest > 0:
-            time.sleep(rest)
-        m.call("scope_move", ["none"])
+        # Long moves go in <= 4 s pieces: on 2026-11-04 a 9.4 s and a 14.2 s scope_move [dir, sec] moved
+        # NOTHING (register unchanged, no error), while 4.8 s moves worked -- the mount's dead-man timer has
+        # a cap somewhere between 5 and 10 s and silently drops anything longer.
+        left = secs
+        while left > 0.01:
+            chunk = min(left, 4.0)
+            t0 = time.time()
+            m.call("scope_move", [cmd, max(1, int(math.ceil(chunk)))])
+            rest = chunk - (time.time() - t0)
+            if rest > 0:
+                time.sleep(rest)
+            m.call("scope_move", ["none"])
+            left -= chunk
         return rate, secs
 
     def nudge(self, east_as, north_as):
