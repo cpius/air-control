@@ -1,0 +1,241 @@
+<!-- Served by dashboard.py at /adc. Reads /api/adc (planetary/adclive.py's adc-<date>.jsonl)
+     and /img on the same origin; nothing else. ?date=YYYY-MM-DD shows another night. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADC correction</title>
+<style>
+:root{
+  --bg:#0b0e13; --panel:#141922; --panel2:#1b212c; --line:#26303f;
+  --ink:#dfe6f0; --dim:#8896aa; --faint:#5b6779;
+  --ok:#5ad48b; --warn:#f0b849; --bad:#ef6b6b; --live:#4ea8ff;
+}
+/* Night mode as on the main page -- but the Saturn crops keep their colour: the colour
+   fringe IS the measurement, so they are only dimmed, never tinted red. */
+html.night{ --bg:#000; --panel:#0d0403; --panel2:#150705; --line:#3a1410;
+  --ink:#ff8a70; --dim:#b4503c; --faint:#7a3527;
+  --ok:#ff7a55; --warn:#ff9a6a; --bad:#ff5a48; --live:#ff8a70; }
+html.night .shot img{ filter:brightness(.6); }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+  margin:0;font-weight:600}
+a{color:var(--live)}
+header{position:sticky;top:0;z-index:20;background:var(--panel);
+  border-bottom:1px solid var(--line);padding:9px 14px;
+  display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.brand{font-weight:700;letter-spacing:.1em}
+.spacer{flex:1}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+  border-radius:5px;padding:4px 9px;font:inherit;font-size:11px;cursor:pointer}
+button.on{border-color:var(--live);color:var(--live)}
+.mono-dim{color:var(--faint)}
+
+.grid{display:grid;gap:12px;padding:12px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:900px){ .grid{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)} .wide{grid-column:1/-1} }
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px;min-width:0}
+.head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+.head .sub{color:var(--faint);font-size:11px;margin-left:auto;text-align:right}
+.empty{color:var(--faint);padding:18px 0;text-align:center;font-style:italic}
+
+/* --- the number --- */
+.num{font-size:84px;line-height:1;font-weight:700;letter-spacing:-.02em}
+.num small{font-size:40px}
+.good{color:var(--ok)} .mid{color:var(--warn)} .poor{color:var(--bad)}
+.trend{font-size:26px;font-weight:700;margin-left:14px;vertical-align:middle}
+.trend.better{color:var(--ok)} .trend.worse{color:var(--bad)}
+.say{font-size:16px;margin-top:10px}
+.say b{color:var(--ink)}
+.dim{color:var(--dim)}
+.status{margin-top:10px;font-size:12px;color:var(--faint)}
+.todo{font-size:44px;line-height:1.05;font-weight:800;letter-spacing:.01em;margin:22px 0 6px;color:var(--ink)}
+.todo.good{color:var(--ok)}
+.hint{font-size:20px;font-weight:700;margin-bottom:14px;color:var(--dim)}
+.hint.good{color:var(--ok)} .hint.poor{color:var(--bad)}
+.stale{color:var(--warn)}
+
+/* --- images --- */
+.shot{margin:0;cursor:zoom-in}
+.shot img{display:block;background:#000;border:1px solid var(--line);border-radius:6px;
+  image-rendering:auto}
+.latest img{width:100%;max-width:440px;aspect-ratio:1;object-fit:contain;margin:0 auto}
+.latest figcaption{text-align:center;margin-top:6px;color:var(--dim)}
+.thumbs{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+.thumbs img{width:100%;aspect-ratio:1;object-fit:contain}
+.thumbs figcaption{font-size:10.5px;text-align:center;color:var(--faint);margin-top:2px}
+.thumbs figcaption b{font-size:12px}
+#zoom{position:fixed;inset:0;z-index:50;background:#000e;display:none;
+  align-items:center;justify-content:center;flex-direction:column;cursor:zoom-out;padding:12px}
+#zoom.on{display:flex}
+#zoom img{max-width:100%;max-height:85vh;image-rendering:pixelated;border-radius:6px}
+#zoom div{margin-top:8px;color:var(--ink);font-size:15px}
+</style>
+
+<header>
+  <a href="/" style="font-size:11px">← rig</a>
+  <span class="brand">ADC CORRECTION</span>
+  <span id="date" class="mono-dim"></span>
+  <span class="spacer"></span>
+  <button id="night">night mode</button>
+  <button id="pause">pause</button>
+  <span id="clock" class="mono-dim"></span>
+</header>
+
+<div class="grid">
+  <section class="card">
+    <div class="head"><h2>Colour error now</h2><span class="sub" id="age"></span></div>
+    <div id="now"><p class="empty">waiting for the first reading…</p></div>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>Latest picture</h2><span class="sub" id="latest-sub"></span></div>
+    <div id="latest"><p class="empty">no picture yet</p></div>
+  </section>
+
+  <section class="card wide">
+    <div class="head"><h2>Over time</h2><span class="sub">smaller is better · dashed: goal 0.30″ and no ADC</span></div>
+    <div id="chart"></div>
+  </section>
+
+  <section class="card wide">
+    <div class="head"><h2>Every measurement</h2><span class="sub" id="thumbs-sub">newest first · tap to enlarge</span></div>
+    <div id="thumbs" class="thumbs"></div>
+  </section>
+</div>
+
+<div id="zoom"><img alt=""><div></div></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const GOAL = 0.30, MID = 1.0;
+const DATE = new URLSearchParams(location.search).get('date') || '';
+const hms = t => t ? String(t).slice(11, 19) : '';
+// The crop files are written once and never rewritten, so the browser may cache them (t=1).
+const img = p => '/img?t=1&p=' + encodeURIComponent(p);
+const cls = v => v < GOAL ? 'good' : (v <= MID ? 'mid' : 'poor');
+let paused = false, lastKey = '';
+
+function nowPane(r, status) {
+  const tr = (r.trend || '').toLowerCase();
+  const word = tr === 'better' ? '<span class="trend better">BETTER</span>'
+             : tr === 'worse' ? '<span class="trend worse">worse</span>' : '';
+  // adclive.py's instruction: OPEN MORE / CLOSE MORE / MOVE TOGETHER (or ROTATE CAMERA) / GOOD, plus a right-way/wrong-way hint
+  const todo = r.advice ? `<div class="todo ${(r.advice.startsWith('SPOT ON') || r.advice.startsWith('GOOD')) ? 'good' : ''}">${esc(r.advice)}</div>
+    ${r.hint ? `<div class="hint ${/wrong/.test(r.hint) ? 'poor' : (/right/.test(r.hint) ? 'good' : '')}">${esc(r.hint)}</div>` : ''}` : '';
+  return `<div><span class="num ${cls(r.tot)}">${Number(r.tot).toFixed(2)}<small>″</small></span>${word}</div>
+    ${todo}
+    <div class="say"><b>Smaller is better. Goal: under 0.30″</b></div>
+    <div class="say dim">No ADC at all would give ${r.no_adc != null ? Number(r.no_adc).toFixed(2) + '″' : '—'}
+      ${r.alt != null ? ` (Saturn at ${Number(r.alt).toFixed(0)}° up)` : ''}</div>
+    ${status ? `<div class="status">${esc(hms(status.t))} · ${esc(status.text)}</div>` : ''}`;
+}
+
+function chart(rs) {
+  if (rs.length < 2) return '<p class="empty">the line appears after two readings</p>';
+  const W = 900, H = 230, L = 40, R = 10, T = 10, B = 22;
+  const ts = rs.map(r => Date.parse(r.t));
+  const t0 = ts[0], t1 = Math.max(ts[ts.length - 1], t0 + 1);
+  const top = Math.max(GOAL * 1.5, ...rs.map(r => r.tot), ...rs.map(r => r.no_adc || 0)) * 1.08;
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R);
+  const y = v => T + (1 - Math.min(v, top) / top) * (H - T - B);
+  const line = rs.map((r, i) => `${x(ts[i]).toFixed(1)},${y(r.tot).toFixed(1)}`).join(' ');
+  const noAdc = rs.filter(r => r.no_adc != null)
+    .map(r => `${x(Date.parse(r.t)).toFixed(1)},${y(r.no_adc).toFixed(1)}`).join(' ');
+  const yt = [0, GOAL, 1, 2, 3, 4, 5].filter(v => v <= top)
+    .map(v => `<text x="${L - 5}" y="${y(v) + 3}" fill="var(--faint)" font-size="10" text-anchor="end">${v.toFixed(v === GOAL ? 2 : 0)}</text>`).join('');
+  const span = (t1 - t0) / 60000, step = span > 60 ? 15 : span > 20 ? 5 : span > 6 ? 2 : 1;
+  let xt = '';
+  for (let m = Math.ceil(t0 / 60000 / step) * step; m * 60000 <= t1; m += step) {
+    const d = new Date(m * 60000);
+    xt += `<text x="${x(m * 60000)}" y="${H - 5}" fill="var(--faint)" font-size="10" text-anchor="middle">${d.toTimeString().slice(0, 5)}</text>`;
+  }
+  const last = rs[rs.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+    <rect x="${L}" y="${y(GOAL)}" width="${W - L - R}" height="${y(0) - y(GOAL)}" fill="var(--ok)" opacity=".08"/>
+    <line x1="${L}" x2="${W - R}" y1="${y(GOAL)}" y2="${y(GOAL)}" stroke="var(--ok)" stroke-dasharray="5 4"/>
+    <text x="${W - R}" y="${y(GOAL) - 4}" fill="var(--ok)" font-size="10" text-anchor="end">goal 0.30″</text>
+    ${noAdc ? `<polyline points="${noAdc}" fill="none" stroke="var(--dim)" stroke-dasharray="5 4"/>
+      <text x="${W - R}" y="${y(last.no_adc ?? 0) - 4}" fill="var(--dim)" font-size="10" text-anchor="end">no ADC</text>` : ''}
+    <line x1="${L}" x2="${L}" y1="${T}" y2="${H - B}" stroke="var(--line)"/>
+    <polyline points="${line}" fill="none" stroke="var(--live)" stroke-width="2"/>
+    <circle cx="${x(ts[ts.length - 1])}" cy="${y(last.tot)}" r="4" fill="var(--live)"/>
+    ${yt}${xt}
+  </svg>`;
+}
+
+function render(d) {
+  const rs = d.readings || [];
+  $('#date').textContent = d.date || '';
+  const key = rs.length + '|' + (rs.length ? rs[rs.length - 1].t : '') + '|' + (d.status?.t || '');
+  if (key === lastKey) return ageTick(rs);
+  lastKey = key;
+  if (!rs.length) {
+    $('#now').innerHTML = `<p class="empty">no readings for ${esc(d.date || 'today')} yet — is adclive.py running?</p>`
+      + (d.status ? `<div class="status">${esc(hms(d.status.t))} · ${esc(d.status.text)}</div>` : '');
+    $('#latest').innerHTML = '<p class="empty">no picture yet</p>';
+    $('#chart').innerHTML = ''; $('#thumbs').innerHTML = '';
+    return ageTick(rs);
+  }
+  const r = rs[rs.length - 1];
+  $('#now').innerHTML = nowPane(r, d.status);
+  const withImg = rs.filter(x => x.img);
+  const li = withImg[withImg.length - 1];
+  if (li) {
+    $('#latest').innerHTML = `<figure class="shot latest" data-p="${esc(li.img)}" data-c="${esc(hms(li.t))} · ${Number(li.tot).toFixed(2)}″">
+      <img src="${img(li.img)}" alt="Saturn ${esc(hms(li.t))}"><figcaption>${esc(hms(li.t))} · <b class="${cls(li.tot)}">${Number(li.tot).toFixed(2)}″</b></figcaption></figure>`;
+    $('#latest-sub').textContent = li === r ? '' : 'newest reading has no picture';
+  }
+  $('#chart').innerHTML = chart(rs);
+  const older = withImg.slice(0, -1).reverse();
+  $('#thumbs').innerHTML = older.length ? older.map(x =>
+    `<figure class="shot" data-p="${esc(x.img)}" data-c="${esc(hms(x.t))} · ${Number(x.tot).toFixed(2)}″">
+      <img loading="lazy" src="${img(x.img)}" alt=""><figcaption>${esc(hms(x.t))}<br><b class="${cls(x.tot)}">${Number(x.tot).toFixed(2)}″</b></figcaption></figure>`).join('')
+    : '<p class="empty">earlier pictures appear here</p>';
+  $('#thumbs-sub').textContent = `${withImg.length} pictures · newest first · tap to enlarge`;
+  ageTick(rs);
+}
+
+function ageTick(rs) {
+  if (!rs.length) { $('#age').textContent = ''; return; }
+  const s = Math.round((Date.now() - Date.parse(rs[rs.length - 1].t)) / 1000);
+  const ago = s < 120 ? s + ' s' : s < 7200 ? Math.round(s / 60) + ' min' : s < 172800 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' days';
+  $('#age').innerHTML = s > 30 ? `<span class="stale">last reading ${ago} ago</span>`
+                               : `${s} s ago`;
+}
+
+async function poll() {
+  $('#clock').textContent = new Date().toTimeString().slice(0, 8);
+  if (paused) return;
+  try {
+    const r = await fetch('/api/adc' + (DATE ? '?date=' + encodeURIComponent(DATE) : ''), {cache: 'no-store'});
+    render(await r.json());
+  } catch (e) {
+    $('#age').innerHTML = '<span class="stale">cannot reach the dashboard server</span>';
+  }
+}
+
+document.addEventListener('click', e => {
+  const f = e.target.closest('.shot');
+  if (f) { const z = $('#zoom'); z.querySelector('img').src = img(f.dataset.p);
+           z.querySelector('div').textContent = f.dataset.c; z.classList.add('on'); return; }
+  if (e.target.closest('#zoom')) $('#zoom').classList.remove('on');
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#zoom').classList.remove('on'); });
+$('#night').onclick = e => {
+  document.documentElement.classList.toggle('night');
+  e.target.classList.toggle('on', document.documentElement.classList.contains('night'));
+  try { localStorage.night = document.documentElement.classList.contains('night') ? '1' : ''; } catch (_) {}
+};
+$('#pause').onclick = e => {
+  paused = !paused; e.target.classList.toggle('on', paused);
+  e.target.textContent = paused ? 'paused' : 'pause';
+};
+try { if (localStorage.night) $('#night').click(); } catch (_) {}
+
+poll();
+setInterval(poll, 3000);
+setInterval(() => $('#clock').textContent = new Date().toTimeString().slice(0, 8), 1000);
+</script>
