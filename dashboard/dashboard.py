@@ -171,6 +171,9 @@ def find_focus_run(rows, roots):
 
 
 def read_focus_run(d):
+    """Star sweeps (focus.py: star_width_px, smaller is better) and planet sweeps (lib/focusrun.py: a generic
+    `score` + `higher_is_better`, e.g. planetfocus sharpness) alike. Each step gets `value` -- the number the pane
+    plots -- and the run says which way is better; two rounds at one position are averaged for the curve."""
     if not d or not os.path.isdir(d):
         return None
     steps = []
@@ -180,31 +183,52 @@ def read_focus_run(d):
         except Exception:
             continue
         png = j[:-5] + ".png"
+        score = rec.get("score")
         steps.append({
             "step": rec.get("step"), "label": rec.get("label"),
             "position": rec.get("focuser", rec.get("requested")),
             "requested": rec.get("requested"),
             "width_px": rec.get("star_width_px"), "peak": rec.get("peak"),
-            "flux": rec.get("flux"), "score": rec.get("score"),
+            "flux": rec.get("flux"), "score": score,
+            "value": score if "higher_is_better" in rec else rec.get("star_width_px"),
+            "higher_is_better": rec.get("higher_is_better"),
+            "metric": rec.get("metric"), "unit": rec.get("unit"),
             "jump_px": rec.get("jump_px"), "rejected": rec.get("rejected"),
             "exposure_s": rec.get("exposure_s"), "gain": rec.get("gain"),
             "star": [rec.get("star_x"), rec.get("star_y")],
             "time": rec.get("time"),
             "png": png if os.path.exists(png) else None,
         })
-    steps.sort(key=lambda s: (s["position"] is None, s["position"] or 0))
-    good = [s for s in steps if s["width_px"] and not s["rejected"]]
-    best = min(good, key=lambda s: s["width_px"]) if good else None
+    steps.sort(key=lambda s: (s["position"] is None, s["position"] or 0, s["step"] or 0))
+    generic = next((s for s in steps if s["higher_is_better"] is not None), None)
+    higher = bool(generic["higher_is_better"]) if generic else False
+    metric = (generic["metric"] or "score") if generic else "star width"
+    unit = (generic["unit"] or "") if generic else "px"
+    good = [s for s in steps if isinstance(s["value"], (int, float)) and not s["rejected"]]
+    best = (max if higher else min)(good, key=lambda s: s["value"]) if good else None
+    byp = {}
+    for s in good:
+        byp.setdefault(s["position"], []).append(s["value"])
+    curve = [[p, sum(v) / len(v)] for p, v in sorted(byp.items()) if p is not None]
+    summary = {}
+    try:
+        summary = json.load(open(os.path.join(d, "summary.json")))
+    except Exception:
+        pass
     sheet = next((p for p in (os.path.join(d, "sweep.jpg"),
                               os.path.join(d, "sweep.png")) if os.path.exists(p)), None)
+    vertex = _vertex([(p, -v if higher else v) for p, v in curve])
     return {
         "dir": d, "name": os.path.basename(d.rstrip("/")),
         "mtime": datetime.datetime.fromtimestamp(os.path.getmtime(d)).isoformat(
             timespec="seconds"),
         "steps": steps, "n": len(steps),
         "rejected": sum(1 for s in steps if s["rejected"]),
-        "best": best, "contact_sheet": sheet,
-        "vertex": _vertex([(s["position"], s["width_px"]) for s in good]),
+        "best": best, "contact_sheet": sheet, "curve": curve,
+        "metric": metric, "unit": unit, "higher_is_better": higher,
+        "metric_label": "%s, %s is better" % (metric, "higher" if higher else "smaller"),
+        "vertex": summary.get("vertex") if summary.get("vertex") is not None else vertex,
+        "parked": summary.get("parked"), "finished": summary.get("finished", bool(summary)),
     }
 
 

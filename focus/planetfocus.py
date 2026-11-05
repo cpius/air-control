@@ -29,6 +29,7 @@ import numpy as np
 from scipy import ndimage, optimize
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from daypipes import host, Pipes, log, save_png, move_to, focuser_pos
+from focusrun import FocusRun          # the dashboard Focus pane's run folder
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--pos", help="comma list of EAF positions")
@@ -51,7 +52,7 @@ ap.add_argument("--hold-mode", default="goto", choices=["goto", "pulse"], help="
 ap.add_argument("--east", default="0.239,0.971", help="--hold-mode pulse: sky east on the sensor (camangle.py)")
 ap.add_argument("--arcsec-per-px", type=float, default=0.110, help="--hold-mode pulse: bin-1 scale")
 ap.add_argument("--nudge", default="slow", choices=["slow", "fast"], help="--hold-mode pulse: slow = slowpulse.Nudger (1x/4x, mount-timed dead-man), fast = the old 20x pulses")
-ap.add_argument("--outdir", default="/Users/madsdorup/ASICAP/telemetry/planetfocus")
+ap.add_argument("--outdir", default=os.path.expanduser("~/ASICAP/telemetry/planetfocus"))
 a = ap.parse_args()
 os.makedirs(a.outdir, exist_ok=True)
 positions = [int(x) for x in a.pos.split(",")] if a.pos else list(range(a.lo, a.hi + 1, a.step))
@@ -187,6 +188,7 @@ try:
         p.s.air.drain_events(); p.last_sig = None; p.c("start_exposure", ["light"])
     start = focuser_pos(p)
     log("EAF at %d ; positions %s ; %d round(s) ; %d frames/pos ; metric %s" % (start, order, a.rounds, a.frames, a.metric))
+    run = FocusRun(a.tag, a.metric, log=log); run.announce()
     moon = a.moon if a.moon == "auto" else (tuple(int(v) for v in a.moon.split(",")) if a.moon else None)
     for r in range(a.rounds):
         seq = order if r % 2 == 0 else order[::-1]
@@ -202,9 +204,21 @@ try:
                     fr.append(img)
             bl = [blob(im) for im in fr]
             ok = [(im, b) for im, b in zip(fr, bl) if b]
+            # a disc cut by the frame edge reads falsely SHARP (2026-11-04: half a Saturn at the top edge scored
+            # 10.9 against 4.6 for the same position whole, and the vertex followed it 330 steps off)
+            whole = [(im, b) for im, b in ok if min(b["x"], b["y"], im.shape[1] - b["x"], im.shape[0] - b["y"]) > b["diam"] + 10]
+            if len(whole) < len(ok):
+                log("r%d pos %6d: %d of %d frames dropped -- planet at the frame edge" % (r, got, len(ok) - len(whole), len(ok)))
+            if ok and not whole:
+                rows.append(dict(round=r, pos=got, size=float("nan"), sharp=0.0, moon=float("nan"), n=0))
+                run.step("r%d" % r, got, None, rejected="planet at the frame edge", frames=len(fr), exposure_s=a.exp_ms / 1000.0, gain=a.gain)
+                continue
+            ok = whole
             if not ok:
                 log("r%d pos %6d: no planet in %d frames (max %.0f)" % (r, got, len(fr), max(float(im.max()) for im in fr) if fr else 0));
-                rows.append(dict(round=r, pos=got, size=float("nan"), sharp=0.0, moon=float("nan"), n=0)); continue
+                rows.append(dict(round=r, pos=got, size=float("nan"), sharp=0.0, moon=float("nan"), n=0))
+                run.step("r%d" % r, got, None, rejected="no planet", frames=len(fr), exposure_s=a.exp_ms / 1000.0, gain=a.gain)
+                continue
             sh = [sharp(im, b) for im, b in ok]
             keep = sorted(range(len(ok)), key=lambda i: -sh[i])[:max(1, len(ok) // 4)] if a.metric != "moon" else list(range(len(ok)))
             size = float(np.median([ok[i][1]["diam"] for i in keep]))
@@ -228,7 +242,10 @@ try:
             log("r%d pos %6d: %d frames, planet at (%.0f,%.0f) peak %.0f/255 | size %.1f px  sharp %.3f  moon FWHM %s" % (
                 r, got, len(ok), b["x"], b["y"], b["peak"], size, shp, ("%.2f px" % mf) if mf == mf else "-"))
             rows.append(dict(round=r, pos=got, size=size, sharp=shp, moon=mf, n=len(ok)))
-            save_png(ok[keep[0]][0], "%s/%s_r%d_p%d.png" % (a.outdir, a.tag, r, got), shrink=2 if w > 1000 else 1)
+            png = "%s/%s_r%d_p%d.png" % (a.outdir, a.tag, r, got)
+            save_png(ok[keep[0]][0], png, shrink=2 if w > 1000 else 1)
+            run.step("r%d" % r, got, {"sharp": shp, "size": size, "moon": mf}[a.metric], png=png, peak=b["peak"], size_px=size,
+                     sharp=shp, moon_fwhm_px=mf, frames=len(ok), exposure_s=a.exp_ms / 1000.0, gain=a.gain, planet=[b["x"], b["y"]])
             if a.hold and math.hypot(b["x"] - w / 2.0, b["y"] - h / 2.0) > a.recentre_px:
                 try:
                     recentre(b, w, h)
@@ -249,7 +266,7 @@ try:
     if not valid:
         raise RuntimeError("no valid measurements")
     best = (min if key in ("size", "moon") else max)(valid, key=lambda s: s[key])
-    win = best["pos"]
+    win = best["pos"]; vertex = None
     i = [s["pos"] for s in summ].index(win)
     if 0 < i < len(summ) - 1 and all(summ[j][key] == summ[j][key] for j in (i - 1, i + 1)):
         x = np.array([summ[j]["pos"] for j in (i - 1, i, i + 1)], float); y = np.array([summ[j][key] for j in (i - 1, i, i + 1)], float)
@@ -257,13 +274,16 @@ try:
         if c[0] != 0:
             v = -c[1] / (2 * c[0])
             if min(x) <= v <= max(x):
-                win = int(round(v))
+                win = int(round(v)); vertex = win
         log("vertex by %s: best sample %d, parabola %d" % (key, best["pos"], win))
     else:
         log("best by %s is at the edge of the range (%d) -- extend the sweep that way" % (key, win))
     park = a.park if a.park is not None else win
     move_to(p, park)
-    log("EAF parked at %d" % focuser_pos(p))
+    parked = focuser_pos(p)
+    log("EAF parked at %d" % parked)
+    run.summary(best_sample=best["pos"], vertex=vertex, parked=parked, at_edge=vertex is None and win in (summ[0]["pos"], summ[-1]["pos"]),
+                curve=[[s["pos"], s[key]] for s in summ])
 finally:
     p.close()
     try:

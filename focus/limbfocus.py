@@ -6,7 +6,10 @@
 Metric: on the green superpixels of a preview frame (bin 2, 16-bit RGGB), each
 row (or column) that starts in sky is scanned from the sky end to the first
 crossing of the half-contrast level -- that crossing is the limb, never a mare
-boundary inside the disc. width = contrast / |grad I| at the crossing, i.e. the
+boundary inside the disc, PROVIDED the frame holds real sky: when the Moon drifts
+so that only mare is left on the dark side (Oceanus Procellarum is ~40% of the
+highlands), that edge passes for the limb, so a frame whose darkest part is above
+--max-sky of the disc is refused (2026-09-27). width = contrast / |grad I| at the crossing, i.e. the
 edge's 0-100% width along its own normal (2.5 sigma for a Gaussian blur, 0.53 D
 for an out-of-focus annulus with the C8's 35% obstruction). The arms of the V
 are linear in EAF steps far from focus, so two positions on one arm plus one
@@ -35,12 +38,13 @@ ap.add_argument("--scale", type=float, default=0.135, help="bin-1 arcsec/px, for
 ap.add_argument("--limits", default="30000,70000", help="EAF LO,HI allowed")
 ap.add_argument("--goto-best", action="store_true", help="finish at the fitted vertex (else at the best sample)")
 ap.add_argument("--park", type=int, default=None, help="finish at this EAF position instead")
+ap.add_argument("--max-sky", type=float, default=0.10, help="refuse a frame whose darkest side is above this fraction of the disc: a mare edge (mare ~40%% of highland) is not the limb")
 ap.add_argument("--tag", default="limbfocus")
 ap.add_argument("--outdir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "telemetry", time.strftime("%Y-%m-%d"), "limbfocus"))
 a = ap.parse_args()
 daypipes.LO, daypipes.HI = [int(v) for v in a.limits.split(",")]
 os.makedirs(a.outdir, exist_ok=True)
-BIAS = 3900.0
+BIAS = 3900.0 if a.bin == 2 else 1500.0     # preview bin 2 / focus page bin 1 offsets, 16-bit
 SP_ARCSEC = 2 * a.bin * a.scale           # one green superpixel = 2 x bin sensor px
 
 
@@ -54,6 +58,9 @@ def limb_width(img):
     sky = float(np.percentile(g, 2)); plat = float(np.percentile(g, 97))
     C = plat - sky
     if C < 2000:
+        return None
+    if sky > a.max_sky * plat:
+        log("  darkest side is %.0f%% of the disc -- not sky (a mare edge?); move to the limb" % (100 * sky / plat))
         return None
     thr = sky + 0.5 * C; skylim = sky + 0.1 * C
     gy, gx = np.gradient(g)
