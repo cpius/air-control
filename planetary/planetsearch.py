@@ -22,10 +22,13 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--eaf-focus", type=int, required=True, help="EAF position to return to")
 ap.add_argument("--eaf-search", type=int, required=True, help="EAF position for the search (defocused)")
 ap.add_argument("--rings", type=int, default=4, help="spiral rings (ring r has 8r frames)")
+ap.add_argument("--min-ring", type=int, default=0, help="skip rings inside this one (already searched)")
+ap.add_argument("--origin", default=None, help="RA_h,Dec_deg register centre of the spiral (default: where the mount is now)")
 ap.add_argument("--step-ra", type=float, default=9.0, help="arcmin between columns (E-W; the field's 4' side)")
 ap.add_argument("--step-dec", type=float, default=12.0, help="arcmin between rows (N-S; the field's 7' side)")
 ap.add_argument("--rate-arcmin-s", type=float, default=5.2, help="20x joystick speed (RIG.md: 5.1-5.46)")
 ap.add_argument("--exp", type=float, default=1.0); ap.add_argument("--gain", type=int, default=300); ap.add_argument("--bin", type=int, default=2)
+ap.add_argument("--no-full", action="store_true", help="ignore the whole-frame criterion: the warm 585 steps its offset by 128 ADU (2026-11-03), which read as a frame-filling disc; needs a disc smaller than the field")
 ap.add_argument("--jump", type=float, default=0.30, help="a tile brighter than the first frame's by this fraction of the SKY level = planet")
 ap.add_argument("--true-dec", type=float, default=2.0, help="approximate real Dec, for RA arcmin (cos Dec)")
 ap.add_argument("--east", default="0.239,0.971", help="sky east on the sensor (camangle.py)")
@@ -99,17 +102,26 @@ def spiral(n):
         for _ in range(2 * r): x += 1; pts.append((x, y))
     return pts
 
+import signal
+# SIGTERM (stop by PID) must still run the finally: EAF back to focus. Python's default dies on the spot
+# and left the EAF 15000 steps out on 2026-11-04.
+signal.signal(signal.SIGTERM, lambda signum, frame: (_ for _ in ()).throw(SystemExit(128 + signum)))
+
 from daypipes import Pipes, move_to as eaf_move, focuser_pos
 p = Pipes(); found = None; s0 = None
 try:
     s0 = reg(); log("start register RA %.5f Dec %.4f  track %s  pier %s" % (s0["RA"], s0["Dec"], s0["is_enable_track"], s0["pier_side"]))
+    if a.origin:
+        s0 = dict(s0); s0["RA"], s0["Dec"] = map(float, a.origin.split(","))
+        log("spiral centred on register RA %.5f Dec %.4f" % (s0["RA"], s0["Dec"]))
     p.setup("preview", a.exp, a.gain, a.bin); p.grab(timeout=40)
     log("EAF %d -> %d (defocus for the search)" % (focuser_pos(p), a.eaf_search)); eaf_move(p, a.eaf_search)
     base = None; bias = 3968.0 if a.bin == 2 else 3900.0
-    pts = spiral(a.rings); log("%d frames, steps RA %.0f' Dec %.0f'" % (len(pts), a.step_ra, a.step_dec))
+    pts = [q for q in spiral(a.rings) if max(abs(q[0]), abs(q[1])) >= a.min_ring]
+    log("%d frames, steps RA %.0f' Dec %.0f'" % (len(pts), a.step_ra, a.step_dec))
     for k, (i, j) in enumerate(pts):
         tgt = (i * a.step_ra, j * a.step_dec)
-        if k: s = move_to(tgt, s0)
+        if k or a.origin or a.min_ring: s = move_to(tgt, s0)
         else: s = s0
         x, y = reg_xy(s, s0)
         img, w, h, info = p.grab(timeout=40)
@@ -124,7 +136,7 @@ try:
         floor = float(np.percentile(tn, 10))
         ref = float(np.median(floors[-3:])) if floors else sky
         partial = (tn.max() - floor) / ref; full = (floor - ref) / ref
-        jump = np.array([[max(partial, full)]])
+        jump = np.array([[partial if a.no_full else max(partial, full)]])
         floors.append(floor)
         np.save(os.path.join(OUT, "%s_%03d.npy" % (time.strftime("%H%M%S"), k)), img[::2, ::2].astype(np.uint16))
         log("frame %3d grid (%+d,%+d) register %+6.1f' RA %+6.1f' Dec : sky %4.0f  brightest tile %+.2f  whole frame %+.2f  (max px %.0f)%s" % (
@@ -161,6 +173,9 @@ finally:
     try:
         if found is None and s0 is not None:
             log("not found -> back to the start"); move_to((0.0, 0.0), s0)
+    except Exception as e:
+        log("!! cleanup failed: %s" % e)
+    try:
         log("EAF back to %d" % a.eaf_focus); eaf_move(p, a.eaf_focus)
     except Exception as e:
         log("!! cleanup failed: %s" % e)

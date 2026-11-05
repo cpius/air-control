@@ -20,6 +20,9 @@ ap.add_argument("--pre-north", type=float, default=0.0, help="arcsec to move the
 ap.add_argument("--passes", type=int, default=3); ap.add_argument("--tol", type=float, default=12.0, help="arcsec")
 ap.add_argument("--exp", type=float, default=0.02); ap.add_argument("--gain", type=int, default=300)
 ap.add_argument("--arcsec-per-px", type=float, default=0.110)
+ap.add_argument("--dec-up", default="auto", choices=["auto", "north", "south"],
+                help="scope_move command that moves the pointing NORTH: 'south' on pier west, 'north' on pier east; "
+                     "auto reads pier_side (2026-10-03: the pier-west default drove Altair out of the field on pier east)")
 ap.add_argument("--nudge", default="slow", choices=["slow", "fast"], help="slow = slowpulse.Nudger (1x, mount-timed dead-man, Dec backlash compensated; "
                 "2026-09-28 Moon test), fast = the old 20x pulses + tracking pause")
 a = ap.parse_args()
@@ -32,6 +35,14 @@ def mdo(fn):
     m = Air(host(), 4400)
     try: return fn(m)
     finally: m.close()
+DEC_UP = a.dec_up
+if DEC_UP == "auto":
+    pier = mdo(lambda m: m.call("scope_get_info", [])["result"].get("pier_side"))
+    DEC_UP = {"west": "south", "east": "north"}.get(pier)
+    if DEC_UP is None:
+        sys.exit("pier_side is %r -- pass --dec-up explicitly" % pier)
+    log("pier %s: '%s' moves the pointing north" % (pier, DEC_UP))
+DEC_DOWN = {"south": "north", "north": "south"}[DEC_UP]
 def pulse(cmd, secs):
     def f(m):
         idx = m.call("scope_get_info", [])["result"]["slew_rate_index"]
@@ -40,16 +51,16 @@ def pulse(cmd, secs):
     mdo(f); time.sleep(1.0)
 nudger = None
 def move(e_as, n_as):
-    """move the POINTING by e_as east, n_as north (arcsec). Pier west: 'south' raises Dec."""
+    """move the POINTING by e_as east, n_as north (arcsec). DEC_UP is the command that raises Dec."""
     global nudger
     if a.nudge == "slow":
         if nudger is None:
             from slowpulse import Nudger
-            nudger = Nudger(host(), log=log)
+            nudger = Nudger(host(), dec_up=DEC_UP, log=log)
         done = nudger.nudge(e_as, n_as); time.sleep(0.8)
         log("  nudged: " + (", ".join("%s %.0f\" at %dx" % (c, amt, 1 if r == 0 else 4) for c, amt, r, _ in done) or "nothing"))
         return
-    if abs(n_as) > 8: pulse("south" if n_as > 0 else "north", min(abs(n_as) / 312.0, 4.0))
+    if abs(n_as) > 8: pulse(DEC_UP if n_as > 0 else DEC_DOWN, min(abs(n_as) / 312.0, 4.0))
     if e_as > 8:
         try: mdo(lambda m: m.call("scope_set_track_state", [False])); time.sleep(min(e_as / 15.0, 30.0))
         finally: mdo(lambda m: m.call("scope_set_track_state", [True]))

@@ -7,6 +7,9 @@ running across an Air restart, a power cycle, or a crash of whatever tool was
 driving, and it will simply pick the story back up. That separation is the
 point: the dashboard must never be able to disturb the session it is watching.
 
+/adc is a separate page for turning the ADC: the live colour error from
+planetary/adclive.py (adc-<date>.jsonl in the data dir) and its Saturn crops.
+
 Six panes, in the order they matter at 2 a.m.:
 
     sky        conditions now, the 30-minute outlook, radar, Sun and Moon
@@ -381,6 +384,39 @@ def build_state(data_dir=DATA, roots=(ROOT,), with_weather=True):
     }
 
 
+# ---------------------------------------------------------------------------
+# ADC page: planetary/adclive.py appends one row per reading to adc-<date>.jsonl
+# ---------------------------------------------------------------------------
+
+MAX_ADC_ROWS = 3000        # ~3 h at one reading every 4 s
+
+
+def read_adc(data_dir, date=None):
+    """Readings and status lines from adc-<date>.jsonl (default: today, else the newest file)."""
+    files = sorted(glob.glob(os.path.join(data_dir, "adc-*.jsonl")))
+    if date:
+        path = os.path.join(data_dir, "adc-%s.jsonl" % date)
+    else:
+        path = os.path.join(data_dir, "adc-%s.jsonl" % datetime.date.today().isoformat())
+        if not os.path.exists(path) and files:
+            path = files[-1]
+    out = {"date": os.path.basename(path)[4:-6], "dates": [os.path.basename(f)[4:-6] for f in files],
+           "readings": [], "status": None}
+    if not os.path.exists(path):
+        return out
+    rows = []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue                     # a half-written last line while adclive appends
+    out["readings"] = [r for r in rows if r.get("kind") == "reading"][-MAX_ADC_ROWS:]
+    st = [r for r in rows if r.get("kind") == "status"]
+    out["status"] = st[-1] if st else None
+    return out
+
+
 def _age(iso):
     if not iso:
         return None
@@ -437,6 +473,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if u.path == "/img":
             q = urllib.parse.parse_qs(u.query)
             return self._image(q.get("p", [""])[0], versioned="t" in q)
+        if u.path in ("/adc", "/adc.html"):
+            f = os.path.join(HERE, "adc.html")
+            if not os.path.exists(f):
+                return self._send(500, "adc.html missing next to dashboard.py", "text/plain")
+            return self._send(200, open(f, "rb").read(), "text/html; charset=utf-8")
+        if u.path == "/api/adc":
+            date = urllib.parse.parse_qs(u.query).get("date", [""])[0]
+            if date and not (len(date) == 10 and date[4] == date[7] == "-"
+                             and date.replace("-", "").isdigit()):
+                return self._send(400, json.dumps({"error": "date must be YYYY-MM-DD"}))
+            try:
+                return self._send(200, json.dumps(read_adc(self.data_dir, date or None), default=str))
+            except Exception as e:
+                log.warn("adc read failed: %s", e)
+                return self._send(500, json.dumps({"error": str(e)}))
         return self._send(404, json.dumps({"error": "not found"}))
 
     def _image(self, p, versioned=False):

@@ -408,6 +408,7 @@ keep the Bayer mosaic, so every metric folds 2×2 superpixels first).
 | `rig/smoke_test.py` | End-to-end Alpaca capture: connect, subframe, expose, read pixels. |
 | `lib/airlog.py` | Logging core: levelled logger + the per-second progress ticker every slow operation uses. |
 | `dashboard/dashboard.py` | Live rig dashboard on :8765 — weather, focus, preview, commands out, messages in by subsystem. |
+| `dashboard/adc.html` | `/adc` on the dashboard: the live colour error from `planetary/adclive.py`, for turning the ADC. |
 | `lib/recorder.py` | The tap inside `air_rpc.Air` that writes every command/reply/event to `~/ASICAP/dashboard/data/*.jsonl` (`ASICAP_DASHBOARD_DIR` moves it). |
 | `dashboard/snapshot.py` | Freeze the dashboard into one self-contained HTML file. |
 | `dashboard/weather.py` | Sky conditions now and 30 min out (Open-Meteo, RainViewer), with dew-point and Moon/Sun altitude. |
@@ -416,6 +417,10 @@ keep the Bayer mosaic, so every metric folds 2×2 superpixels first).
 | `rig/recover.py`, `rig/restore_mount.py`, `pointing/resync.py` | Bring the rig back after an Air restart or a lost pointing model. |
 | `rig/wifi.py`, `pointing/lock.py` | Force the 2.4 GHz band; guarantee a single client on the mount. |
 | `planetary/planet_track.py` | Closed-loop planet centring with joystick pulses, 1.5–2.8 Hz, runs during AVI recording. |
+| `planetary/satseeing.py`, `planetary/cliploop.sh` | Hold Saturn and measure seeing every few minutes; record clips back to back with no gotos (safe past transit). |
+| `planetary/clipseeing.py`, `planetary/pullbyseeing.py` | Tip-tilt seeing per finished clip; copy a night's AVIs off the Air best-seeing first. |
+| `planetary/donutcentre_live.py`, `planetary/adclive.py` | Centre a planet from its defocused donut; live ADC readout that keeps the planet in the crop. |
+| `moon/moonmosaic.py`, `moon/cloudwatch_limb.py` | Whole-Moon mosaic from register gotos; wait for clear sky at the limb, then measure sharpness. |
 | `pointing/joyslew.py` | Joystick slew closed on the mount register, chunked and capped, aborts on a register jump. |
 | `pointing/drift.py` | Polar-alignment drift test: plate-solve one field for N minutes, fit the Dec drift. |
 | `capture/grab.py` | One fresh preview frame to a 16-bit FITS. |
