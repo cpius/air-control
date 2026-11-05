@@ -92,7 +92,11 @@ tr:hover td{background:#ffffff06}
   background:#000a;font-size:10.5px;display:flex;justify-content:space-between}
 
 /* --- focus --- */
-.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:5px}
+.strip{display:flex;gap:6px;overflow:hidden;padding-bottom:5px}
+.strip .pv-img{position:relative}
+.strip .pv-nav{width:30px;height:30px;font-size:20px;padding:0 0 2px}
+.strip .pv-nav.l{left:4px} .strip .pv-nav.r{right:4px}
+.strip-count{font-size:10.5px;color:var(--faint);margin-top:2px}
 .strip figure{margin:0;flex:0 0 auto;text-align:center}
 .strip img{width:74px;height:74px;border-radius:4px;border:1px solid var(--line);
   image-rendering:pixelated;display:block}
@@ -354,50 +358,93 @@ function animateRadar(r) {
 /* ---------------- focus ---------------- */
 function focusPane(f) {
   if (!f) return '<p class="empty">no focus run found</p>';
-  const good = f.steps.filter(s => s.width_px && !s.rejected);
+  // `value` is star width (smaller is better) for star sweeps, the run's own metric (e.g. planet
+  // sharpness, higher is better) for planet sweeps -- dashboard.py read_focus_run says which.
+  const u = f.unit || '';
+  const v = x => x == null ? '—' : num(x, 2) + (u ? ' ' + u : '');
+  const good = f.steps.filter(s => s.value != null && !s.rejected);
   return `${vcurve(f, good)}
     <div class="kv" style="margin:8px 0">
-      <dt>best</dt><dd>${f.best ? `${f.best.position} @ ${num(f.best.width_px,2)} px`
-                                : '—'}${f.vertex ? ` &nbsp;<span class="mono-dim">parabola vertex ${f.vertex}</span>`:''}</dd>
+      <dt>best</dt><dd>${f.best ? `${f.best.position} @ ${v(f.best.value)}` : '—'}${f.vertex != null
+        ? ` &nbsp;<span class="mono-dim">parabola vertex ${f.vertex}</span>` : ''}</dd>
+      ${f.parked != null ? `<dt>parked</dt><dd><b>${f.parked}</b></dd>` : (f.higher_is_better != null && !f.finished
+        ? `<dt>parked</dt><dd class="mono-dim">sweep still running</dd>` : '')}
+      <dt>metric</dt><dd>${esc(f.metric_label || 'star width, smaller is better')}</dd>
       <dt>steps</dt><dd>${f.n} (${f.rejected} rejected)</dd>
-      <dt>exposure</dt><dd>${num(good[0]?.exposure_s,1)}s @ gain ${good[0]?.gain ?? '—'}</dd>
+      <dt>exposure</dt><dd>${good[0]?.exposure_s != null ? num(good[0].exposure_s * (good[0].exposure_s < 1 ? 1000 : 1), good[0].exposure_s < 1 ? 0 : 1) + (good[0].exposure_s < 1 ? ' ms' : 's') : '—'} @ gain ${good[0]?.gain ?? '—'}</dd>
     </div>
-    <div class="strip">${f.steps.map(s => s.png ? `
+    ${focusStrip(f, v)}`;
+}
+
+// The step thumbnails page like the preview strip: as many 74 px frames as fit, the arrows on the end
+// frames page through the rest (no scroll bar), tap a frame to open it full size.
+const FC_W = 74, FC_GAP = 6;
+let fcStart = 0, fcRun = '';
+const fcPerPage = () => Math.max(1, Math.floor(($('#focus').clientWidth + FC_GAP) / (FC_W + FC_GAP)));
+
+function focusStrip(f, v) {
+  const shots = f.steps.filter(s => s.png);
+  if (!shots.length) return '';
+  if (f.dir !== fcRun) { fcRun = f.dir; fcStart = 0; }     // a new run starts at its first step
+  const n = fcPerPage();
+  fcStart = Math.max(0, Math.min(fcStart, shots.length - n));
+  const page = shots.slice(fcStart, fcStart + n), more = shots.length - fcStart - page.length;
+  return `<div class="strip">${page.map((s, k) => `
       <figure class="${s.rejected?'rej':''} ${f.best&&s.step===f.best.step?'best':''}">
-        <img src="${img(s.png)}" loading="lazy" alt="step ${s.step}">
-        <figcaption>${s.position}<br>${s.rejected ? esc(s.rejected) : num(s.width_px,2)+'px'}</figcaption>
-      </figure>` : '').join('')}</div>`;
+        <div class="pv-img">
+          <a href="${img(s.png)}" target="_blank" rel="noopener"><img src="${img(s.png)}" loading="lazy" alt="step ${s.step}"></a>
+          ${k === 0 && fcStart > 0 ? '<button class="pv-nav l" data-dir="-1" title="earlier steps">‹</button>' : ''}
+          ${k === page.length - 1 && more > 0 ? '<button class="pv-nav r" data-dir="1" title="later steps">›</button>' : ''}
+        </div>
+        <figcaption>${s.position}${s.label ? ' ' + esc(s.label) : ''}<br>${s.rejected ? esc(s.rejected) : v(s.value)}</figcaption>
+      </figure>`).join('')}</div>
+    ${shots.length > page.length ? `<div class="strip-count">steps ${fcStart + 1}–${fcStart + page.length} of ${shots.length}</div>` : ''}`;
+}
+
+function fcPage(dir) {
+  fcStart += dir * fcPerPage();
+  if (STATE) renderFocus(STATE);
+}
+
+function renderFocus(s) {
+  $('#focus').innerHTML = focusPane(s.focus);
+  $('#focus-sub').textContent = s.focus ? `${s.focus.name} · ${hhmm(s.focus.mtime)}` : '';
+  document.querySelectorAll('#focus .pv-nav').forEach(b => b.onclick = () => fcPage(+b.dataset.dir));
 }
 
 function vcurve(f, good) {
   if (good.length < 2) return '<p class="empty">not enough usable steps to plot</p>';
-  const W = 560, H = 170, L = 40, B = 26;
+  const W = 560, H = 170, L = 40, B = 26, u = f.unit || '';
   const xs = f.steps.map(s => s.position).filter(v => v != null);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
-  const ws = good.map(s => s.width_px);
+  const ws = good.map(s => s.value);
   const y0 = Math.min(...ws) * 0.94, y1 = Math.max(...ws) * 1.04;
   const X = v => L + (v - x0) / Math.max(1e-9, x1 - x0) * (W - L - 12);
   const Y = v => H - B - (v - y0) / Math.max(1e-9, y1 - y0) * (H - B - 14);
-  const pts = good.map(s => [X(s.position), Y(s.width_px)]);
+  // every measurement as a dot (two rounds -> two dots per position), the line through their mean
+  const line = (f.curve && f.curve.length ? f.curve : good.map(s => [s.position, s.value])).map(([p, v]) => [X(p), Y(v)]);
+  const dots = good.map(s => [X(s.position), Y(s.value)]);
   const rej = f.steps.filter(s => s.rejected).map(s =>
     `<g stroke="var(--bad)" stroke-width="1.4">
        <line x1="${X(s.position)-4}" y1="${H-B-4}" x2="${X(s.position)+4}" y2="${H-B-12}"/>
        <line x1="${X(s.position)-4}" y1="${H-B-12}" x2="${X(s.position)+4}" y2="${H-B-4}"/></g>`).join('');
-  const vx = f.vertex != null && f.vertex >= x0 && f.vertex <= x1
-    ? `<line x1="${X(f.vertex)}" x2="${X(f.vertex)}" y1="10" y2="${H-B}"
-         stroke="var(--ok)" stroke-dasharray="3 3"/>
-       <text x="${X(f.vertex)+4}" y="18" fill="var(--ok)" font-size="10">${f.vertex}</text>` : '';
+  const mark = (pos, colour, label, y) => pos != null && pos >= x0 && pos <= x1
+    ? `<line x1="${X(pos)}" x2="${X(pos)}" y1="10" y2="${H-B}" stroke="${colour}" stroke-dasharray="3 3"/>
+       <text x="${X(pos)+4}" y="${y}" fill="${colour}" font-size="10">${label}</text>` : '';
+  const parkedMark = f.parked != null && f.parked !== f.vertex ? mark(f.parked, 'var(--focuser)', 'parked ' + f.parked, 30) : '';
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
     <line x1="${L}" x2="${W-12}" y1="${H-B}" y2="${H-B}" stroke="var(--line)"/>
     <line x1="${L}" x2="${L}" y1="10" y2="${H-B}" stroke="var(--line)"/>
-    <text x="2" y="16" fill="var(--faint)" font-size="9">${num(y1,1)}px</text>
+    <text x="2" y="16" fill="var(--faint)" font-size="9">${num(y1,1)}${u}</text>
     <text x="2" y="${H-B}" fill="var(--faint)" font-size="9">${num(y0,1)}</text>
     <text x="${L}" y="${H-8}" fill="var(--faint)" font-size="9">${x0}</text>
+    <text x="${(L + W - 12) / 2}" y="${H-8}" fill="var(--faint)" font-size="9" text-anchor="middle">${esc(f.metric_label || '')}</text>
     <text x="${W-12}" y="${H-8}" fill="var(--faint)" font-size="9" text-anchor="end">${x1}</text>
-    ${vx}
-    <polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none"
+    ${mark(f.vertex, 'var(--ok)', f.vertex, 18)}
+    ${parkedMark}
+    <polyline points="${line.map(p=>p.join(',')).join(' ')}" fill="none"
       stroke="var(--focuser)" stroke-width="1.6"/>
-    ${pts.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="2.6" fill="var(--focuser)"/>`).join('')}
+    ${dots.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="2.6" fill="var(--focuser)"/>`).join('')}
     ${rej}
   </svg>`;
 }
@@ -549,8 +596,7 @@ function render(s) {
   $('#dew').innerHTML = dewPane(s.dew);
   $('#dew-sub').textContent = s.dew ? `dewctl · Shelly W channel · ${hhmm(s.dew.last.t)}` : '';
 
-  $('#focus').innerHTML = focusPane(s.focus);
-  $('#focus-sub').textContent = s.focus ? `${s.focus.name} · ${hhmm(s.focus.mtime)}` : '';
+  renderFocus(s);
 
   previewPane();
 
@@ -597,7 +643,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') pvPage(1);
   else if (e.key === 'ArrowLeft') pvPage(-1);
 });
-window.addEventListener('resize', () => { if (STATE) previewPane(); });
+window.addEventListener('resize', () => { if (STATE) { previewPane(); renderFocus(STATE); } });
 if (localStorage.night) $('#night').click();
 
 poll();
