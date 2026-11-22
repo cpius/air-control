@@ -59,7 +59,11 @@ DEVICE_ORDER = ["mount", "camera", "guide", "focuser", "solver", "system", "app"
 # Hidden from the commands pane: the 4700 handshake every connection makes, and
 # read-only status polls. Still in the log on disk.
 POLL_METHODS = {"get_verify_str", "verify_client", "pi_is_verified",
-                "get_power_supply", "get_camera_state"}
+                "get_power_supply", "get_camera_state", "get_app_state"}
+MAX_GUIDE_STEPS = 900      # ~1 h at one guide frame every 4 s
+GUIDE_EVENTS = {"StartGuiding", "GuidingStopped", "StarLost", "StarSelected", "SettleBegin",
+                "SettleDone", "StartCalibration", "CalibrationComplete", "CalibrationFailed",
+                "LockPositionSet", "LockPositionLost", "GuidingDithered", "Paused", "Resumed", "Alert"}
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +155,65 @@ def build_feedback(rows):
     return ({d: v[-MAX_EVENTS_PER_DEVICE:] for d, v in by.items() if v},
             {"%s/%s" % k: v for k, v in noise.items()},
             {d: len(v) for d, v in by.items() if v})
+
+
+# ---------------------------------------------------------------------------
+# Guiding: the Air's PHD2-style GuideStep events (rig/guidelog.py keeps a 4400
+# connection open while it guides so they reach the log). Distances are ARCSEC.
+# ---------------------------------------------------------------------------
+
+def _rms(xs):
+    if len(xs) < 2:
+        return None
+    m = sum(xs) / len(xs)
+    return (sum((x - m) ** 2 for x in xs) / len(xs)) ** 0.5
+
+
+def build_guide(rows):
+    """Guide steps (newest MAX_GUIDE_STEPS), RMS over the last 50 and 200 steps, and the guide events
+    that matter (start/stop, star lost, settle, calibration) -- the app's guide graph and log, from the
+    event log. A new run starts wherever the frame counter goes backwards."""
+    steps, events, state, run = [], [], None, 0
+    last_frame = None
+    for r in rows:
+        k = r.get("kind")
+        if k == "reply" and r.get("method") == "get_app_state" and isinstance(r.get("result"), str):
+            state = {"t": r.get("t"), "state": r["result"]}
+            continue
+        if k != "event":
+            continue
+        ev, d = r.get("event"), r.get("data") or {}
+        if ev == "GuideStep":
+            fr = d.get("Frame")
+            if last_frame is not None and fr is not None and fr < last_frame:
+                run += 1
+            last_frame = fr
+            rd, dd = d.get("RADirection") or "", d.get("DECDirection") or ""
+            steps.append({"t": r.get("t"), "frame": fr, "run": run,
+                          "ra": d.get("RADistanceRaw"), "dec": d.get("DECDistanceRaw"),
+                          "ra_ms": (d.get("RADuration") or 0) * (-1 if rd.startswith("W") else 1) if rd and rd != "null" else 0,
+                          "dec_ms": (d.get("DECDuration") or 0) * (-1 if dd.startswith("S") else 1) if dd and dd != "null" else 0,
+                          "snr": d.get("SNR"), "mass": d.get("StarMass"),
+                          "settle": bool(d.get("IsSettle")), "dither": bool(d.get("IsDither"))})
+        elif ev in GUIDE_EVENTS:
+            events.append({"t": r.get("t"), "event": ev, "data": d})
+    steps = steps[-MAX_GUIDE_STEPS:]
+
+    def stats(n):
+        cur = [s for s in steps[-n:] if s["run"] == (steps[-1]["run"] if steps else 0)
+               and not s["settle"] and not s["dither"] and s["ra"] is not None and s["dec"] is not None]
+        ra, de = [s["ra"] for s in cur], [s["dec"] for s in cur]
+        if len(cur) < 3:
+            return None
+        r, d = _rms(ra), _rms(de)
+        snr = [s["snr"] for s in cur if s["snr"] is not None]
+        return {"n": len(cur), "ra_rms": r, "dec_rms": d, "tot_rms": (r * r + d * d) ** 0.5,
+                "ra_mean": sum(ra) / len(ra), "dec_mean": sum(de) / len(de),
+                "ra_peak": max(abs(x) for x in ra), "dec_peak": max(abs(x) for x in de),
+                "snr": sum(snr) / len(snr) if snr else None}
+    return {"steps": steps, "events": events[-40:], "state": state,
+            "stats50": stats(50), "stats200": stats(200),
+            "last_t": steps[-1]["t"] if steps else None}
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +465,7 @@ def build_state(data_dir=DATA, roots=(ROOT,), with_weather=True):
         "feedback": fb, "noise": noise, "event_counts": counts,
         "device_order": DEVICE_ORDER,
         "focus": read_focus_run(focus_dir),
+        "guide": build_guide(rows),
         "preview": previews[0] if previews else None,     # snapshot.py reads this
         "previews": previews,
         "sessions": [r for r in rows if r.get("kind") == "session"][-5:],
