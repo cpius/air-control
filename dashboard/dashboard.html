@@ -129,6 +129,19 @@ tr:hover td{background:#ffffff06}
 .ev .n{font-weight:600}
 .ev .d{color:var(--dim)}
 .ev.noisy{opacity:.5}
+
+/* --- guiding --- */
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:9px;margin-bottom:10px}
+.gstats div{background:var(--panel2);border-radius:6px;padding:7px 9px}
+.gstats b{display:block;font-size:19px;font-weight:700;line-height:1.2}
+.gstats span{color:var(--faint);font-size:10px;text-transform:uppercase;letter-spacing:.07em}
+.gctl{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:11px;color:var(--faint)}
+.gctl .gap{width:10px}
+.glog{max-height:170px;overflow:auto;margin-top:8px;font-size:11.5px}
+/* No guide log: the card shrinks to its title bar, the hint in the sub line. */
+#c-guide.collapsed{padding:8px 12px}
+#c-guide.collapsed .head{margin-bottom:0}
+#c-guide.collapsed #guide{display:none}
 </style>
 
 <header>
@@ -143,16 +156,6 @@ tr:hover td{background:#ffffff06}
 </header>
 
 <div class="grid" id="grid">
-  <section class="card wide" id="c-sky">
-    <div class="head"><h2>Sky</h2><span class="sub" id="sky-sub"></span></div>
-    <div id="sky"></div>
-  </section>
-
-  <section class="card wide" id="c-dew">
-    <div class="head"><h2>Dew heater</h2><span class="sub" id="dew-sub"></span></div>
-    <div id="dew"></div>
-  </section>
-
   <section class="card" id="c-focus">
     <div class="head"><h2>Focus</h2><span class="sub" id="focus-sub"></span></div>
     <div id="focus"></div>
@@ -163,6 +166,16 @@ tr:hover td{background:#ffffff06}
     <div id="preview" class="preview"></div>
   </section>
 
+  <section class="card wide" id="c-sky">
+    <div class="head"><h2>Sky</h2><span class="sub" id="sky-sub"></span></div>
+    <div id="sky"></div>
+  </section>
+
+  <section class="card wide" id="c-dew">
+    <div class="head"><h2>Dew heater</h2><span class="sub" id="dew-sub"></span></div>
+    <div id="dew"></div>
+  </section>
+
   <section class="card wide" id="c-cmd">
     <div class="head"><h2>Commands to the Air</h2><span class="sub" id="cmd-sub"></span></div>
     <div class="scroll" id="cmd"></div>
@@ -171,6 +184,11 @@ tr:hover td{background:#ffffff06}
   <section class="card wide" id="c-fb">
     <div class="head"><h2>Messages from the Air</h2><span class="sub" id="fb-sub"></span></div>
     <div id="fb"></div>
+  </section>
+
+  <section class="card wide" id="c-guide">
+    <div class="head"><h2>Guiding</h2><span class="sub" id="guide-sub"></span></div>
+    <div id="guide"></div>
   </section>
 </div>
 
@@ -578,6 +596,79 @@ function fmtData(d) {
   ).join('  ').slice(0, 200);
 }
 
+/* ---------------- guiding ---------------- */
+/* The app's guide graph: RA (blue) and Dec (red) error in arcsec per guide frame, pulses as bars,
+   RMS over the last 50 steps like the app shows it. Data: GuideStep events, arcsec. */
+let gN = 100, gS = 0;
+try { gN = +(localStorage.gN ?? 100); gS = +(localStorage.gS ?? 0); } catch (e) {}
+function guideChart(steps) {
+  const W = 1000, H = 230, L = 34, R = 8, T = 8, B = 20, n = steps.length;
+  if (n < 2) return '<p class="empty">no guide steps yet — is rig/guidelog.py running while the Air guides?</p>';
+  const vals = steps.flatMap(s => [s.ra, s.dec]).filter(v => v != null).map(Math.abs);
+  const S = gS || Math.max(2, Math.ceil(Math.max(...vals) * 1.1));
+  const x = i => L + i * (W - L - R) / Math.max(1, n - 1);
+  const mid = T + (H - T - B) / 2, half = (H - T - B) / 2;
+  const y = v => mid - Math.max(-1, Math.min(1, v / S)) * half;
+  const pmax = Math.max(50, ...steps.map(s => Math.max(Math.abs(s.ra_ms), Math.abs(s.dec_ms))));
+  const bw = Math.max(1, (W - L - R) / n * 0.35);
+  let bars = '', ra = [], dec = [], segs = [], shade = '';
+  steps.forEach((s, i) => {
+    if (s.ra_ms) bars += `<rect x="${x(i) - bw}" y="${Math.min(mid, mid - s.ra_ms / pmax * half * .45)}" width="${bw}" height="${Math.abs(s.ra_ms / pmax * half * .45)}" fill="var(--mount)" opacity=".28"/>`;
+    if (s.dec_ms) bars += `<rect x="${x(i)}" y="${Math.min(mid, mid - s.dec_ms / pmax * half * .45)}" width="${bw}" height="${Math.abs(s.dec_ms / pmax * half * .45)}" fill="var(--bad)" opacity=".28"/>`;
+    if (s.settle || s.dither) shade += `<rect x="${x(i) - 2}" y="${T}" width="4" height="${H - T - B}" fill="var(--warn)" opacity=".10"/>`;
+    if (i && s.run !== steps[i - 1].run) { segs.push([ra, dec]); ra = []; dec = []; }
+    if (s.ra != null) ra.push(`${x(i).toFixed(1)},${y(s.ra).toFixed(1)}`);
+    if (s.dec != null) dec.push(`${x(i).toFixed(1)},${y(s.dec).toFixed(1)}`);
+  });
+  segs.push([ra, dec]);
+  const lines = segs.map(([r, d]) =>
+    `<polyline points="${r.join(' ')}" fill="none" stroke="var(--mount)" stroke-width="1.5"/>` +
+    `<polyline points="${d.join(' ')}" fill="none" stroke="var(--bad)" stroke-width="1.5"/>`).join('');
+  const grid = [-1, -.5, .5, 1].map(f => `<line x1="${L}" x2="${W - R}" y1="${y(f * S)}" y2="${y(f * S)}" stroke="var(--line)" stroke-dasharray="2 4"/>
+    <text x="${L - 4}" y="${y(f * S) + 3}" fill="var(--faint)" font-size="10" text-anchor="end">${f * S > 0 ? '+' : ''}${num(f * S, S < 4 ? 1 : 0)}"</text>`).join('');
+  const ticks = steps.map((s, i) => (i % Math.ceil(n / 8) === 0)
+    ? `<text x="${x(i)}" y="${H - 5}" fill="var(--faint)" font-size="10" text-anchor="middle">${hhmm(s.t)}</text>` : '').join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${shade}${grid}
+    <line x1="${L}" x2="${W - R}" y1="${mid}" y2="${mid}" stroke="var(--dim)" opacity=".6"/>
+    <text x="${L - 4}" y="${mid + 3}" fill="var(--faint)" font-size="10" text-anchor="end">0</text>
+    ${bars}${lines}${ticks}</svg>`;
+}
+function guidePane(g) {
+  if (!g || !g.steps?.length) return '<p class="empty">no guide steps in this session\'s log — start <code>rig/guidelog.py</code> while the Air guides</p>';
+  const st = g.stats50, st2 = g.stats200, last = g.steps[g.steps.length - 1];
+  const tile = (v, l, d = 2, u = '"') => `<div><b>${v == null ? '—' : num(v, d) + u}</b><span>${l}</span></div>`;
+  const view = gN ? g.steps.slice(-gN) : g.steps;
+  const btn = (k, v, label, cur) => `<button data-${k}="${v}" class="${v === cur ? 'on' : ''}">${label}</button>`;
+  const evs = (g.events || []).slice(-14).reverse().map(e =>
+    `<div class="ev"><span class="mono-dim">${hhmm(e.t)}</span> <span class="n">${esc(e.event)}</span> <span class="d">${esc(fmtData(e.data || {}))}</span></div>`).join('');
+  return `<div class="gstats">
+      ${tile(st?.ra_rms, 'RMS RA')}${tile(st?.dec_rms, 'RMS Dec')}${tile(st?.tot_rms, 'RMS total')}
+      ${tile(st?.ra_peak, 'peak RA', 1)}${tile(st?.dec_peak, 'peak Dec', 1)}
+      ${tile(st?.ra_mean, 'mean RA', 2)}${tile(st?.dec_mean, 'mean Dec', 2)}
+      ${tile(st?.snr, 'star SNR', 0, '')}${tile(last?.mass, 'star mass', 0, '')}
+      ${tile(st2?.tot_rms, `total, last ${st2?.n ?? 200}`)}
+    </div>
+    <div class="gctl">frames ${btn('gn', 50, '50', gN)}${btn('gn', 100, '100', gN)}${btn('gn', 200, '200', gN)}${btn('gn', 0, 'all', gN)}
+      <span class="gap"></span>scale ${btn('gs', 0, 'auto', gS)}${btn('gs', 2, '±2"', gS)}${btn('gs', 4, '±4"', gS)}${btn('gs', 8, '±8"', gS)}${btn('gs', 16, '±16"', gS)}
+      <span class="gap"></span><span style="color:var(--mount)">— RA</span> <span style="color:var(--bad)">— Dec</span> · bars = pulses · amber = settling/dither</div>
+    ${guideChart(view)}
+    <div class="glog">${evs || '<p class="empty">no guide events</p>'}</div>`;
+}
+function renderGuide(s) {
+  const g = s.guide;
+  const none = !g?.steps?.length;
+  $('#c-guide').classList.toggle('collapsed', none);
+  $('#guide').innerHTML = none ? '' : guidePane(g);
+  const age = g?.last_t ? (Date.now() - new Date(g.last_t).getTime()) / 1000 : null;
+  $('#guide-sub').textContent = (g?.state ? `app ${g.state.state} · ` : '')
+    + (none ? 'no guide log — run rig/guidelog.py while the Air guides'
+      : `${g.steps.length} steps · last ${age == null ? '?' : age < 90 ? num(age) + ' s' : num(age / 60, 0) + ' min'} ago · arcsec`);
+  document.querySelectorAll('#guide button[data-gn]').forEach(b => b.onclick = () => {
+    gN = +b.dataset.gn; try { localStorage.gN = gN; } catch (e) {} renderGuide(STATE); });
+  document.querySelectorAll('#guide button[data-gs]').forEach(b => b.onclick = () => {
+    gS = +b.dataset.gs; try { localStorage.gS = gS; } catch (e) {} renderGuide(STATE); });
+}
+
 /* ---------------- shell ---------------- */
 function render(s) {
   STATE = s;
@@ -600,6 +691,8 @@ function render(s) {
   renderFocus(s);
 
   previewPane();
+
+  renderGuide(s);
 
   $('#cmd').innerHTML = cmdPane(s.commands || []);
   $('#cmd-sub').textContent = `${(s.commands||[]).length} shown · `
